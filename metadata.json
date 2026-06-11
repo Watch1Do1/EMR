@@ -1,0 +1,15 @@
+{
+  "name": "Narrative EMR",
+  "description": "A clinician-first, narrative-driven EMR focused on chart-centric longitudinal care and efficient documentation.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "Clinical Documentation",
+    "Medication Management",
+    "Lab & Imaging Orders",
+    "Patient Timeline",
+    "Audit Logging"
+  ]
+}
