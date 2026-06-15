@@ -19,6 +19,14 @@ export function BackOfficeMAView() {
   const [weight, setWeight] = useState('160');
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
+  // Vital active/inactive toggle states (X button support)
+  const [bpActive, setBpActive] = useState(true);
+  const [hrActive, setHrActive] = useState(true);
+  const [tempActive, setTempActive] = useState(true);
+  const [respActive, setRespActive] = useState(true);
+  const [spo2Active, setSpo2Active] = useState(true);
+  const [weightActive, setWeightActive] = useState(true);
+
   // Search filter
   const [search, setSearch] = useState('');
 
@@ -41,16 +49,45 @@ export function BackOfficeMAView() {
     if (selectedPatientId) {
       const existing = getVitals(selectedPatientId);
       if (existing) {
-        const [sys, dia] = existing.bloodPressure.split('/');
-        setBpSys(sys || '120');
-        setBpDia(dia || '80');
-        setHeartRate(existing.heartRate);
-        setTemp(existing.temperature);
-        setRespRate(existing.respiratoryRate);
-        setO2Sat(existing.oxygenSat);
-        setWeight(existing.weight);
+        const hasBp = existing.bloodPressure !== 'N/A';
+        setBpActive(hasBp);
+        if (hasBp) {
+          const [sys, dia] = existing.bloodPressure.split('/');
+          setBpSys(sys || '120');
+          setBpDia(dia || '80');
+        } else {
+          setBpSys('');
+          setBpDia('');
+        }
+
+        const hasHr = existing.heartRate !== 'N/A';
+        setHrActive(hasHr);
+        setHeartRate(hasHr ? existing.heartRate : '');
+
+        const hasTemp = existing.temperature !== 'N/A';
+        setTempActive(hasTemp);
+        setTemp(hasTemp ? existing.temperature : '');
+
+        const hasResp = existing.respiratoryRate !== 'N/A';
+        setRespActive(hasResp);
+        setRespRate(hasResp ? existing.respiratoryRate : '');
+
+        const hasSpo2 = existing.oxygenSat !== 'N/A';
+        setSpo2Active(hasSpo2);
+        setO2Sat(hasSpo2 ? existing.oxygenSat : '');
+
+        const hasWeight = existing.weight !== 'N/A';
+        setWeightActive(hasWeight);
+        setWeight(hasWeight ? existing.weight : '');
       } else {
         // Reset to neat defaults
+        setBpActive(true);
+        setHrActive(true);
+        setTempActive(true);
+        setRespActive(true);
+        setSpo2Active(true);
+        setWeightActive(true);
+
         setBpSys('120');
         setBpDia('80');
         setHeartRate('72');
@@ -63,6 +100,13 @@ export function BackOfficeMAView() {
   }, [selectedPatientId]);
 
   const handlePrepopulateNormal = () => {
+    setBpActive(true);
+    setHrActive(true);
+    setTempActive(true);
+    setRespActive(true);
+    setSpo2Active(true);
+    setWeightActive(true);
+
     setBpSys('118');
     setBpDia('76');
     setHeartRate('68');
@@ -77,12 +121,12 @@ export function BackOfficeMAView() {
     if (!selectedPatientId) return;
 
     const vitalsPayload: PatientVitals = {
-      bloodPressure: `${bpSys}/${bpDia}`,
-      heartRate: heartRate,
-      temperature: temp,
-      respiratoryRate: respRate,
-      oxygenSat: o2Sat,
-      weight: weight,
+      bloodPressure: bpActive ? `${bpSys}/${bpDia}` : 'N/A',
+      heartRate: hrActive ? heartRate : 'N/A',
+      temperature: tempActive ? temp : 'N/A',
+      respiratoryRate: respActive ? respRate : 'N/A',
+      oxygenSat: spo2Active ? o2Sat : 'N/A',
+      weight: weightActive ? weight : 'N/A',
       recordedAt: new Date().toISOString(),
       recordedBy: 'Carey Mills, MA'
     };
@@ -248,128 +292,358 @@ export function BackOfficeMAView() {
               <form onSubmit={handleSaveVitals} className="space-y-6">
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
                   {/* Blood Pressure */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-rose-700 font-bold text-xs uppercase tracking-wider">
-                      <Heart size={14} />
-                      Blood Pressure
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    bpActive 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        bpActive ? "text-rose-700" : "text-slate-400"
+                      )}>
+                        <Heart size={14} />
+                        <span>BP (Blood Pressure)</span>
+                      </div>
+                      {bpActive ? (
+                        <button
+                          id="btn_exclude_bp"
+                          type="button"
+                          onClick={() => setBpActive(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Blood Pressure"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        required
-                        className="w-16 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={bpSys}
-                        onChange={(e) => setBpSys(e.target.value)}
-                        placeholder="Sys"
-                      />
-                      <span className="text-slate-400 font-semibold">/</span>
-                      <input
-                        type="number"
-                        required
-                        className="w-16 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={bpDia}
-                        onChange={(e) => setBpDia(e.target.value)}
-                        placeholder="Dia"
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">mmHg</span>
-                    </div>
+                    
+                    {bpActive ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_bp_sys"
+                          type="number"
+                          required
+                          className="w-16 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={bpSys}
+                          onChange={(e) => setBpSys(e.target.value)}
+                          placeholder="Sys"
+                        />
+                        <span className="text-slate-400 font-semibold">/</span>
+                        <input
+                          id="input_bp_dia"
+                          type="number"
+                          required
+                          className="w-16 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={bpDia}
+                          onChange={(e) => setBpDia(e.target.value)}
+                          placeholder="Dia"
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">mmHg</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_bp"
+                          type="button"
+                          onClick={() => setBpActive(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore BP
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Heart Rate */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-rose-600 font-bold text-xs uppercase tracking-wider">
-                      <Activity size={14} />
-                      Heart Rate
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    hrActive 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        hrActive ? "text-rose-650" : "text-slate-400"
+                      )}>
+                        <Activity size={14} />
+                        <span>Heart Rate</span>
+                      </div>
+                      {hrActive ? (
+                        <button
+                          id="btn_exclude_hr"
+                          type="button"
+                          onClick={() => setHrActive(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Heart Rate"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        required
-                        className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={heartRate}
-                        onChange={(e) => setHeartRate(e.target.value)}
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">bpm</span>
-                    </div>
+
+                    {hrActive ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_heart_rate"
+                          type="number"
+                          required
+                          className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={heartRate}
+                          onChange={(e) => setHeartRate(e.target.value)}
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">bpm</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_hr"
+                          type="button"
+                          onClick={() => setHrActive(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore Pulse
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Temperature */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-amber-600 font-bold text-xs uppercase tracking-wider">
-                      <Thermometer size={14} />
-                      Temperature
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    tempActive 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        tempActive ? "text-amber-600" : "text-slate-400"
+                      )}>
+                        <Thermometer size={14} />
+                        <span>Temperature</span>
+                      </div>
+                      {tempActive ? (
+                        <button
+                          id="btn_exclude_temp"
+                          type="button"
+                          onClick={() => setTempActive(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Temperature"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        step="0.1"
-                        required
-                        className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={temp}
-                        onChange={(e) => setTemp(e.target.value)}
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">°F</span>
-                    </div>
+
+                    {tempActive ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_temp"
+                          type="number"
+                          step="0.1"
+                          required
+                          className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={temp}
+                          onChange={(e) => setTemp(e.target.value)}
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">°F</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_temp"
+                          type="button"
+                          onClick={() => setTempActive(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore Temp
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Respiratory Rate */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-indigo-600 font-bold text-xs uppercase tracking-wider">
-                      <Activity size={14} />
-                      Respiratory Rate
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    respActive 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        respActive ? "text-indigo-600" : "text-slate-400"
+                      )}>
+                        <Activity size={14} />
+                        <span>Respiratory Rate</span>
+                      </div>
+                      {respActive ? (
+                        <button
+                          id="btn_exclude_resp"
+                          type="button"
+                          onClick={() => setRespActive(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Respiratory Rate"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        required
-                        className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={respRate}
-                        onChange={(e) => setRespRate(e.target.value)}
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">rpm</span>
-                    </div>
+
+                    {respActive ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_resp_rate"
+                          type="number"
+                          required
+                          className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={respRate}
+                          onChange={(e) => setRespRate(e.target.value)}
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">rpm</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_resp"
+                          type="button"
+                          onClick={() => setRespActive(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore Respiration
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* SpO2 */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-cyan-600 font-bold text-xs uppercase tracking-wider">
-                      <Heart size={14} />
-                      Oxygen Sat (SpO₂)
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    spo2Active 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        spo2Active ? "text-cyan-600" : "text-slate-400"
+                      )}>
+                        <Heart size={14} />
+                        <span>SpO₂ (Oxygen)</span>
+                      </div>
+                      {spo2Active ? (
+                        <button
+                          id="btn_exclude_o2"
+                          type="button"
+                          onClick={() => setSpo2Active(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Oxygen Saturation"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        required
-                        max="100"
-                        className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={o2Sat}
-                        onChange={(e) => setO2Sat(e.target.value)}
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">%</span>
-                    </div>
+
+                    {spo2Active ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_o2_sat"
+                          type="number"
+                          required
+                          max="100"
+                          className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={o2Sat}
+                          onChange={(e) => setO2Sat(e.target.value)}
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">%</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_o2"
+                          type="button"
+                          onClick={() => setSpo2Active(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore Oxygen
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   {/* Weight */}
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                    <div className="flex items-center gap-1.5 text-emerald-600 font-bold text-xs uppercase tracking-wider">
-                      <Scale size={14} />
-                      Body Weight
+                  <div className={cn(
+                    "p-4 rounded-xl border transition-all flex flex-col justify-between min-h-[112px]",
+                    weightActive 
+                      ? "bg-slate-50 border-slate-200" 
+                      : "bg-slate-100/70 border-dashed border-slate-300 opacity-60"
+                  )}>
+                    <div className="flex items-center justify-between">
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-bold text-xs uppercase tracking-wider",
+                        weightActive ? "text-emerald-600" : "text-slate-400"
+                      )}>
+                        <Scale size={14} />
+                        <span>Body Weight</span>
+                      </div>
+                      {weightActive ? (
+                        <button
+                          id="btn_exclude_weight"
+                          type="button"
+                          onClick={() => setWeightActive(false)}
+                          className="w-5 h-5 rounded-full flex items-center justify-center hover:bg-rose-50 hover:text-rose-600 text-slate-400 text-[10px] font-bold transition-colors cursor-pointer"
+                          title="Exclude Weight"
+                        >
+                          ✕
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">N/A</span>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        required
-                        className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
-                        value={weight}
-                        onChange={(e) => setWeight(e.target.value)}
-                      />
-                      <span className="text-[10px] text-slate-400 font-medium">lbs</span>
-                    </div>
+
+                    {weightActive ? (
+                      <div className="flex items-center gap-2 mt-2">
+                        <input
+                          id="input_weight"
+                          type="number"
+                          required
+                          className="w-20 bg-white border border-slate-250 rounded-lg px-2 py-1 text-center font-bold text-slate-800 focus:outline-none"
+                          value={weight}
+                          onChange={(e) => setWeight(e.target.value)}
+                        />
+                        <span className="text-[10px] text-slate-400 font-medium">lbs</span>
+                      </div>
+                    ) : (
+                      <div className="mt-2">
+                        <button
+                          id="btn_include_weight"
+                          type="button"
+                          onClick={() => setWeightActive(true)}
+                          className="text-[11px] text-blue-600 hover:text-blue-800 font-bold"
+                        >
+                          + Restore Weight
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
                 <div className="flex justify-end pt-2">
                   <button
+                    id="btn_commit_vitals"
                     type="submit"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded-lg text-sm shadow-sm transition-all flex items-center gap-2"
                   >

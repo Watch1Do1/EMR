@@ -825,12 +825,16 @@ function Section({ title, icon: Icon, children }: { title: string, icon: any, ch
 }
 
 function VitalCard({ label, value, unit, trend }: { label: string, value: string, unit: string, trend?: 'up' | 'down' }) {
+  const isNA = value === 'N/A';
   return (
-    <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+    <div className={cn(
+      "bg-slate-50 p-3 rounded-lg border border-slate-100 transition-all",
+      isNA && "opacity-60 bg-slate-100/50 grayscale border-slate-200"
+    )}>
       <p className="text-[10px] font-bold text-slate-400 uppercase">{label}</p>
       <div className="flex items-baseline gap-1 mt-1">
-        <span className="text-lg font-bold text-slate-900">{value}</span>
-        <span className="text-[10px] text-slate-500">{unit}</span>
+        <span className={cn("text-lg font-bold", isNA ? "text-slate-400 font-medium italic" : "text-slate-900")}>{value}</span>
+        {!isNA && <span className="text-[10px] text-slate-500">{unit}</span>}
       </div>
     </div>
   );
