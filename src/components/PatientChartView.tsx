@@ -19,6 +19,7 @@ import { cn, formatDate } from '../lib/utils';
 import { NoteType, Patient, ClinicalOrder, OrderType, OrderStatus, Medication } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { ScribeCoPilot } from './ScribeCoPilot';
+import { getPatientById, getVitals } from '../lib/dataStore';
 
 const MOCK_PATIENTS: Record<string, Patient> = {
   '1': { 
@@ -80,7 +81,7 @@ export function PatientChartView() {
   const [activeTab, setActiveTab] = useState<Tab>('summary');
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteDraftContent, setNoteDraftContent] = useState('');
-  const patient = MOCK_PATIENTS[id || ''];
+  const patient = getPatientById(id || '') || MOCK_PATIENTS[id || ''];
 
   const [activeMeds, setActiveMeds] = useState<Medication[]>(() => {
     if (!patient) return [];
@@ -290,6 +291,8 @@ function TabButton({ icon: Icon, label, active, onClick }: { icon: any, label: s
 }
 
 function SummaryView({ patient, activeMeds }: { patient: Patient, activeMeds: Medication[] }) {
+  const maVitals = getVitals(patient.id);
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       {/* Column 1: Problems & Allergies */}
@@ -309,12 +312,34 @@ function SummaryView({ patient, activeMeds }: { patient: Patient, activeMeds: Me
         </Section>
 
         <Section title="Active Vitals" icon={Activity}>
-          <div className="grid grid-cols-2 gap-4">
-            <VitalCard label="BP" value="132/84" unit="mmHg" trend="up" />
-            <VitalCard label="Pulse" value="72" unit="bpm" />
-            <VitalCard label="Temp" value="98.6" unit="°F" />
-            <VitalCard label="Weight" value="165" unit="lbs" />
-          </div>
+          {maVitals ? (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <VitalCard label="BP" value={maVitals.bloodPressure} unit="mmHg" />
+                <VitalCard label="Pulse" value={maVitals.heartRate} unit="bpm" />
+                <VitalCard label="Temp" value={maVitals.temperature} unit="°F" />
+                <VitalCard label="Weight" value={maVitals.weight} unit="lbs" />
+                <VitalCard label="SpO₂" value={maVitals.oxygenSat} unit="%" />
+                <VitalCard label="Resp" value={maVitals.respiratoryRate} unit="rpm" />
+              </div>
+              <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] text-slate-500">
+                <p className="font-semibold text-slate-700">Recorded by:</p>
+                <p>{maVitals.recordedBy} on {new Date(maVitals.recordedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <VitalCard label="BP" value="132/84" unit="mmHg" trend="up" />
+                <VitalCard label="Pulse" value="72" unit="bpm" />
+                <VitalCard label="Temp" value="98.6" unit="°F" />
+                <VitalCard label="Weight" value="165" unit="lbs" />
+              </div>
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[10px] text-amber-800">
+                ⚠️ <span className="font-semibold">Staff Note:</span> Awaiting newer clinical intake from Back Office / MA. Showing clinic baseline.
+              </div>
+            </div>
+          )}
         </Section>
       </div>
 

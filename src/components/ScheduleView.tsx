@@ -3,18 +3,22 @@ import { useState, useEffect } from 'react';
 import { Appointment } from '../types';
 import { cn } from '../lib/utils';
 import { useNavigate } from 'react-router-dom';
-
-const MOCK_APPOINTMENTS: Appointment[] = [
-  { id: '1', patientId: '1', providerId: 'dr_smith', date: '2023-10-13', time: '09:00', duration: 30, type: 'Follow-up', status: 'checked-in', reasonForVisit: 'Hypertension management' },
-  { id: '2', patientId: '2', providerId: 'dr_smith', date: '2023-10-13', time: '09:45', duration: 15, type: 'Quick Check', status: 'scheduled', reasonForVisit: 'Medication refill' },
-  { id: '3', patientId: '3', providerId: 'dr_smith', date: '2023-10-13', time: '10:30', duration: 45, type: 'Initial Consult', status: 'scheduled', reasonForVisit: 'Right knee instability' },
-];
+import { getAppointments, getPatientById } from '../lib/dataStore';
 
 export function ScheduleView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const navigate = useNavigate();
   const [updateCounter, setUpdateCounter] = useState(0);
   const [resetState, setResetState] = useState<'idle' | 'confirming' | 'resetting'>('idle');
+  const [appointments, setAppointments] = useState<Appointment[]>(() => getAppointments());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setAppointments(getAppointments());
+    };
+    window.addEventListener('storage', handleUpdate);
+    return () => window.removeEventListener('storage', handleUpdate);
+  }, []);
 
   const handleResetDemoData = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -119,10 +123,12 @@ export function ScheduleView() {
         </div>
 
         <div className="divide-y divide-slate-100">
-          {MOCK_APPOINTMENTS.map((apt) => {
+          {appointments.map((apt) => {
             const isCompleted = localStorage.getItem(`previsit_completed_${apt.patientId}`) === 'true';
             const summaryText = localStorage.getItem(`previsit_summary_${apt.patientId}`);
             const visType = localStorage.getItem(`previsit_type_${apt.patientId}`) || apt.type;
+            const patObj = getPatientById(apt.patientId);
+            const patientName = patObj ? `${patObj.firstName} ${patObj.lastName}` : `Patient #${apt.patientId}`;
 
             return (
               <div 
@@ -138,7 +144,7 @@ export function ScheduleView() {
                   <div className="flex items-center justify-between">
                     <div>
                       <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                        Patient {apt.patientId === '1' ? 'Jane Doe' : apt.patientId === '2' ? 'John Smith' : 'Robert Johnson'}
+                        {patientName}
                         {isCompleted && (
                           <span className="flex items-center gap-1 bg-indigo-100 text-indigo-700 text-[9px] font-bold px-2 py-0.5 rounded-full border border-indigo-200 uppercase tracking-tight select-none">
                             <Sparkles size={10} className="text-indigo-600 animate-pulse" />

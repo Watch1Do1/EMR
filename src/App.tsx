@@ -10,8 +10,19 @@ import { PatientListView } from './components/PatientListView';
 import { ScheduleView } from './components/ScheduleView';
 import { Sidebar } from './components/Sidebar';
 import { TasksView } from './components/TasksView';
+import { FrontDeskView } from './components/FrontDeskView';
+import { BackOfficeMAView } from './components/BackOfficeMAView';
 
 function Dashboard() {
+  const activeRole = localStorage.getItem('emr_active_role') || 'provider';
+
+  if (activeRole === 'front_desk') {
+    return <FrontDeskView />;
+  }
+  if (activeRole === 'ma') {
+    return <BackOfficeMAView />;
+  }
+
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <h2 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h2>
@@ -63,6 +74,8 @@ export default function App() {
             <Route path="/patients" element={<PatientListView />} />
             <Route path="/patients/:id" element={<PatientChartView />} />
             <Route path="/schedule" element={<ScheduleView />} />
+            <Route path="/frontdesk" element={<FrontDeskView />} />
+            <Route path="/backoffice" element={<BackOfficeMAView />} />
             <Route path="/tasks" element={<TasksView />} />
             <Route path="/admin" element={<AdminView />} />
           </Routes>

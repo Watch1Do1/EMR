@@ -1,16 +1,20 @@
 import { Search, UserPlus, RotateCcw } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Patient } from '../types';
 import { cn } from '../lib/utils';
-
-const MOCK_PATIENTS: Patient[] = [
-  { id: '1', firstName: 'Jane', lastName: 'Doe', dob: '1985-05-12', gender: 'female', mrn: 'MRN-12345' },
-  { id: '2', firstName: 'John', lastName: 'Smith', dob: '1970-11-23', gender: 'male', mrn: 'MRN-67890' },
-  { id: '3', firstName: 'Robert', lastName: 'Johnson', dob: '1992-02-28', gender: 'male', mrn: 'MRN-54321' },
-];
+import { getPatients, clearAllDataStore } from '../lib/dataStore';
 
 export function PatientListView() {
+  const [patients, setPatients] = useState<Patient[]>(() => getPatients());
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      setPatients(getPatients());
+    };
+    window.addEventListener('storage', handleUpdate);
+    return () => window.removeEventListener('storage', handleUpdate);
+  }, []);
   const [searchTerm, setSearchTerm] = useState('');
   const [resetState, setResetState] = useState<'idle' | 'resetting'>('idle');
   const navigate = useNavigate();
@@ -48,7 +52,7 @@ export function PatientListView() {
     }, 850);
   };
 
-  const filteredPatients = MOCK_PATIENTS.filter(p => 
+  const filteredPatients = patients.filter(p => 
     `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.mrn.includes(searchTerm)
   );
