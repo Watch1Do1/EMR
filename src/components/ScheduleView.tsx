@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Plus, Sparkles, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus, Sparkles, Check, RotateCcw } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Appointment } from '../types';
 import { cn } from '../lib/utils';
@@ -14,10 +14,46 @@ export function ScheduleView() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const navigate = useNavigate();
   const [updateCounter, setUpdateCounter] = useState(0);
+  const [resetState, setResetState] = useState<'idle' | 'confirming' | 'resetting'>('idle');
+
+  const handleResetDemoData = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setResetState('resetting');
+    
+    // Clean all possible pre-visit, meds, and orders keys from localStorage
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.startsWith('previsit_') || 
+        key.startsWith('meds_') || 
+        key.startsWith('orders_') ||
+        key.startsWith('screening_') ||
+        key.startsWith('session_phase_') ||
+        key.startsWith('consult_transcript_') ||
+        key.startsWith('detected_orders_') ||
+        key.startsWith('is_video_active_') ||
+        key.startsWith('active_detections_') ||
+        key.startsWith('billing_queries_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    
+    // Remove the demo reset lock so Jane Doe's default seeded state re-initializes on load
+    localStorage.removeItem('demo_reset_active');
+
+    setTimeout(() => {
+      setResetState('idle');
+      setUpdateCounter(prev => prev + 1);
+      window.location.reload();
+    }, 850);
+  };
 
   useEffect(() => {
-    // Seed Jane Doe (Patient 1) as completed by default to showcase finished pre-visit rooming
-    if (!localStorage.getItem('previsit_completed_1')) {
+    // Seed Jane Doe (Patient 1) as completed by *default* only if the dashboard hasn't been explicitly cleared/reset
+    if (!localStorage.getItem('demo_reset_active') && !localStorage.getItem('previsit_completed_1')) {
       localStorage.setItem('previsit_completed_1', 'true');
       localStorage.setItem('previsit_summary_1', "Follow-up Visit. Reason for visit: \"Hypertension management and routine prescription review\". PRIOR CONDITION CHANGES: \"Medical status is stable. Home BP logs checked (average 128/82 mmHg). No new symptoms. Confirmed continuing present active medications (Lisinopril 10mg & Metformin 500mg) and allergies (Penicillin hives reaction) without issues.\"");
       localStorage.setItem('previsit_type_1', 'Follow-up');
@@ -39,6 +75,25 @@ export function ScheduleView() {
           <p className="text-slate-500 mt-1">Manage appointments and provider availability.</p>
         </div>
         <div className="flex items-center gap-4">
+          <button 
+            onClick={handleResetDemoData}
+            disabled={resetState === 'resetting'}
+            className={cn(
+              "flex items-center gap-2 border text-sm px-4 py-2 rounded-lg font-medium transition-all shadow-sm disabled:opacity-55",
+              resetState === 'idle' 
+                ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98]" 
+                : "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+            )}
+          >
+            <RotateCcw 
+              size={16} 
+              className={cn(
+                "text-slate-500",
+                resetState === 'resetting' && "animate-spin text-slate-400"
+              )} 
+            />
+            {resetState === 'idle' ? "Reset Test Data" : "Resetting..."}
+          </button>
           <div className="flex items-center bg-white border border-slate-200 rounded-lg overflow-hidden shadow-sm">
             <button className="p-2 hover:bg-slate-50 border-r border-slate-200">
               <ChevronLeft size={18} />

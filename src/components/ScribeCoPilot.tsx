@@ -23,7 +23,8 @@ import {
   Activity,
   Award,
   Video,
-  Printer
+  Printer,
+  Settings
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Patient, Medication, ClinicalOrder, OrderType, OrderStatus } from '../types';
@@ -86,13 +87,68 @@ export function ScribeCoPilot({
   // 'transition' -> Screening finished, waiting/notifying for doctor to enter
   // 'visit' -> Physician entered, active ambient scribe & visual exam tracking
   // 'review' -> Note generation, formatting, and audit trial preview
-  const [sessionPhase, setSessionPhase] = useState<'rooming' | 'transition' | 'visit' | 'review'>('rooming');
+  const [sessionPhase, setSessionPhase] = useState<'rooming' | 'transition' | 'visit' | 'review'>(() => {
+    const saved = localStorage.getItem(`session_phase_${patient.id}`);
+    if (saved === 'rooming' || saved === 'transition' || saved === 'visit' || saved === 'review') {
+      return saved as 'rooming' | 'transition' | 'visit' | 'review';
+    }
+    const isCompleted = localStorage.getItem(`previsit_completed_${patient.id}`) === 'true';
+    if (isCompleted) {
+      return 'transition';
+    }
+    return 'rooming';
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`session_phase_${patient.id}`, sessionPhase);
+  }, [sessionPhase, patient.id]);
 
   // Audio / voice synthesizer state
   const [isMuted, setIsMuted] = useState(false);
   const [isRecording, setIsRecording] = useState(true);
   const [isListeningForInput, setIsListeningForInput] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // Conversational voice / speed / pitch parameters
+  const [availableVoices, setAvailableVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState<string>('');
+  const [speechRate, setSpeechRate] = useState<number>(0.92); // 0.92 is slightly slower and more conversational/empathetic!
+  const [speechPitch, setSpeechPitch] = useState<number>(1.04);
+  const [showVoiceSettings, setShowVoiceSettings] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const updateVoices = () => {
+        const voicesList = window.speechSynthesis.getVoices();
+        setAvailableVoices(voicesList);
+        
+        // Find best local empathetic voice (Google US English, Samantha, Aria, Zira, etc.)
+        const englishVoices = voicesList.filter(v => v.lang.startsWith('en'));
+        if (englishVoices.length > 0) {
+          const preferredVoice = englishVoices.find(v => 
+            v.name.includes('Samantha') || 
+            v.name.includes('Aria') || 
+            v.name.includes('Hazel') || 
+            v.name.includes('Zira') || 
+            v.name.includes('Google US English') ||
+            v.name.includes('Microsoft Aria') ||
+            v.name.includes('Natural') ||
+            v.name.toLowerCase().includes('female')
+          ) || englishVoices.find(v => v.lang === 'en-US') || englishVoices[0];
+
+          if (preferredVoice) {
+            setSelectedVoiceURI(preferredVoice.voiceURI);
+          }
+        }
+      };
+
+      updateVoices();
+      window.speechSynthesis.onvoiceschanged = updateVoices;
+      return () => {
+        window.speechSynthesis.onvoiceschanged = null;
+      };
+    }
+  }, []);
 
   const handleSendScreeningRef = useRef<any>(null);
   useEffect(() => {
@@ -184,9 +240,28 @@ export function ScribeCoPilot({
         { key: 'history_pmh_psh_allergies', label: "PMH / PSH / Allergies", prompt: "Thank you for sharing that with me. Just so I can update your chart perfectly before the doctor comes in, could you please tell me about any past medical conditions, previous surgeries, and any allergies you might have?" }
       ];
 
-  const [screeningStep, setScreeningStep] = useState(0);
+  const [screeningStep, setScreeningStep] = useState<number>(() => {
+    const saved = localStorage.getItem(`screening_step_${patient.id}`);
+    if (saved !== null) {
+      const parsed = parseInt(saved, 10);
+      if (!isNaN(parsed)) return parsed;
+    }
+    return 0;
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`screening_step_${patient.id}`, screeningStep.toString());
+  }, [screeningStep, patient.id]);
+
   const [userInput, setUserInput] = useState('');
+  
   const [screeningMessages, setScreeningMessages] = useState<ScreeningMessage[]>(() => {
+    const saved = localStorage.getItem(`screening_messages_${patient.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
     const initialText = isFollowUp 
       ? `Welcome back, ${patient.firstName}! It is so wonderful to see you again. I am Nurse Carey, and I'll be checking you in today. What is the main reason for your visit today?`
       : `Hello there, ${patient.firstName}. I am Nurse Carey, and I'm so glad to assist with your check-in today. We want to take excellent care of you. What is the main reason for your visit today?`;
@@ -198,6 +273,10 @@ export function ScribeCoPilot({
       }
     ];
   });
+
+  useEffect(() => {
+    localStorage.setItem(`screening_messages_${patient.id}`, JSON.stringify(screeningMessages));
+  }, [screeningMessages, patient.id]);
 
   const handleToggleVisitType = (newIsFollowUp: boolean) => {
     setIsFollowUp(newIsFollowUp);
@@ -220,11 +299,23 @@ export function ScribeCoPilot({
   const [isDoctorEntering, setIsDoctorEntering] = useState(false);
 
   // 3. active physician consultation / ambient dialogue state
-  const [consultTranscript, setConsultTranscript] = useState<string[]>([
-    "Dr. Smith: Hi Robert, good to see you today. I read the screening report. Let's look closer at that right knee pain.",
-    "Patient: Yes, it feels particularly unstable when walking down slopes of any kind.",
-    "Dr. Smith: Understood. Let's perform a physical assessment. Lean back and let your muscles fully relax..."
-  ]);
+  const [consultTranscript, setConsultTranscript] = useState<string[]>(() => {
+    const saved = localStorage.getItem(`consult_transcript_${patient.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [
+      `Dr. Smith: Hi ${patient.firstName}, good to see you today. I read the screening report. Let's look closer at your symptoms.`,
+      "Patient: Yes, it is particularly uncomfortable today.",
+      "Dr. Smith: Understood. Let's perform a physical assessment. Lean back and let your muscles fully relax..."
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`consult_transcript_${patient.id}`, JSON.stringify(consultTranscript));
+  }, [consultTranscript, patient.id]);
 
   // 3b. Detected ambient orders and medications
   const [detectedOrders, setDetectedOrders] = useState<Array<{
@@ -234,24 +325,36 @@ export function ScribeCoPilot({
     details: string;
     status: 'detected' | 'approved' | 'declined';
     snippet: string;
-  }>>([
-    {
-      id: 'det-1',
-      type: 'imaging',
-      name: 'MRI Right Knee (Non-Contrast)',
-      details: 'Reason: Persistent right knee mechanical instability and positive Lachman. Evaluate ACL/meniscus.',
-      status: 'detected',
-      snippet: 'Dr. Smith: "Let\'s definitively get an MRI of your Right Knee to make sure there is no meniscus tear..."'
-    },
-    {
-      id: 'det-2',
-      type: 'medication',
-      name: 'Celebrex (Celecoxib) 200mg',
-      details: 'Dosage: 200mg orally once daily. Refills: 2. Indications: Right knee joint pain & swelling.',
-      status: 'detected',
-      snippet: 'Dr. Smith: "I\'ll prescribe Celebrex 200mg daily to reduce knee joint inflammation. Take it with meals."'
+  }>>(() => {
+    const saved = localStorage.getItem(`detected_orders_${patient.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
     }
-  ]);
+    return [
+      {
+        id: 'det-1',
+        type: 'imaging',
+        name: 'MRI Right Knee (Non-Contrast)',
+        details: 'Reason: Persistent right knee mechanical instability and positive Lachman. Evaluate ACL/meniscus.',
+        status: 'detected',
+        snippet: 'Dr. Smith: "Let\'s definitively get an MRI of your Right Knee to make sure there is no meniscus tear..."'
+      },
+      {
+        id: 'det-2',
+        type: 'medication',
+        name: 'Celebrex (Celecoxib) 200mg',
+        details: 'Dosage: 200mg orally once daily. Refills: 2. Indications: Right knee joint pain & swelling.',
+        status: 'detected',
+        snippet: 'Dr. Smith: "I\'ll prescribe Celebrex 200mg daily to reduce knee joint inflammation. Take it with meals."'
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`detected_orders_${patient.id}`, JSON.stringify(detectedOrders));
+  }, [detectedOrders, patient.id]);
 
   // Handle ambient parsing of new transcript line
   const handleAddNewTranscriptLine = (text: string) => {
@@ -386,51 +489,82 @@ export function ScribeCoPilot({
   };
 
   // Billing complexity suggestions showing dynamically during physician visit
-  const [billingQueries, setBillingQueries] = useState<DoctorQuery[]>([
-    {
-      id: 'bq1',
-      question: "Inquire about exacerbating/relieving factors (flexion vs extension) to reach Level 4 Chief History elements.",
-      suggestedAction: "Ask: 'Does the pain get worse with specific motions?'",
-      category: 'billing',
-      completed: false
-    },
-    {
-      id: 'bq2',
-      question: "Confirm current medication compliance for established hypertension treatment to support overall medical decision making (MDM).",
-      suggestedAction: "Ask: 'Are you taking your Lisinopril consistently every morning?'",
-      category: 'billing',
-      completed: false
-    },
-    {
-      id: 'bq3',
-      question: "Document right knee joint effusion details or joint line tenderness to complete structural Orthopedic documentation.",
-      suggestedAction: "Perform joint line palpation exam.",
-      category: 'clinical',
-      completed: false
+  const [billingQueries, setBillingQueries] = useState<DoctorQuery[]>(() => {
+    const saved = localStorage.getItem(`billing_queries_${patient.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
     }
-  ]);
+    return [
+      {
+        id: 'bq1',
+        question: "Inquire about exacerbating/relieving factors (flexion vs extension) to reach Level 4 Chief History elements.",
+        suggestedAction: "Ask: 'Does the pain get worse with specific motions?'",
+        category: 'billing',
+        completed: false
+      },
+      {
+        id: 'bq2',
+        question: "Confirm current medication compliance for established hypertension treatment to support overall medical decision making (MDM).",
+        suggestedAction: "Ask: 'Are you taking your Lisinopril consistently every morning?'",
+        category: 'billing',
+        completed: false
+      },
+      {
+        id: 'bq3',
+        question: "Document right knee joint effusion details or joint line tenderness to complete structural Orthopedic documentation.",
+        suggestedAction: "Perform joint line palpation exam.",
+        category: 'clinical',
+        completed: false
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`billing_queries_${patient.id}`, JSON.stringify(billingQueries));
+  }, [billingQueries, patient.id]);
 
   // 4. Physical Exam Maneuver Capture (Webcam Simulation)
-  const [isVideoActive, setIsVideoActive] = useState(false);
+  const [isVideoActive, setIsVideoActive] = useState(() => {
+    return localStorage.getItem(`is_video_active_${patient.id}`) === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`is_video_active_${patient.id}`, isVideoActive ? 'true' : 'false');
+  }, [isVideoActive, patient.id]);
+
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [lastExamDetected, setLastExamDetected] = useState<string>('');
-  const [activeDetections, setActiveDetections] = useState<ExamManeuver[]>([
-    {
-      id: 'em1',
-      maneuver: 'Lachman Test (Right Knee)',
-      detectedAt: '15:12:35',
-      question: 'It looks like you performed a Lachman exam on the right knee. Was it positive (laxity or soft end-point)?',
-      category: 'ortho'
-    },
-    {
-      id: 'em2',
-      maneuver: 'Chest Stethoscope Auscultation',
-      detectedAt: '15:13:50',
-      question: 'You did a stethoscope exam of the chest. Were there any abnormal crackles or lung findings detected?',
-      category: 'cardio'
+  const [activeDetections, setActiveDetections] = useState<ExamManeuver[]>(() => {
+    const saved = localStorage.getItem(`active_detections_${patient.id}`);
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
     }
-  ]);
+    return [
+      {
+        id: 'em1',
+        maneuver: 'Lachman Test (Right Knee)',
+        detectedAt: '15:12:35',
+        question: 'It looks like you performed a Lachman exam on the right knee. Was it positive (laxity or soft end-point)?',
+        category: 'ortho'
+      },
+      {
+        id: 'em2',
+        maneuver: 'Chest Stethoscope Auscultation',
+        detectedAt: '15:13:50',
+        question: 'You did a stethoscope exam of the chest. Were there any abnormal crackles or lung findings detected?',
+        category: 'cardio'
+      }
+    ];
+  });
+
+  useEffect(() => {
+    localStorage.setItem(`active_detections_${patient.id}`, JSON.stringify(activeDetections));
+  }, [activeDetections, patient.id]);
 
   // Custom text-to-speech speak utility
   const speakVoicePrompt = (text: string, onEndCallback?: () => void) => {
@@ -445,8 +579,14 @@ export function ScribeCoPilot({
       // Clean clean text
       const clean = text.replace(/["'“”]/g, '');
       const utterance = new SpeechSynthesisUtterance(clean);
-      utterance.rate = 1.0;
-      utterance.pitch = 1.05;
+      
+      const choice = availableVoices.find(v => v.voiceURI === selectedVoiceURI);
+      if (choice) {
+        utterance.voice = choice;
+      }
+      
+      utterance.rate = speechRate;
+      utterance.pitch = speechPitch;
       if (onEndCallback) {
         utterance.onend = () => {
           onEndCallback();
@@ -760,7 +900,7 @@ export function ScribeCoPilot({
         </div>
 
         {/* Audio control bars and speaker status */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 relative">
           <button 
             onClick={() => setIsMuted(prev => !prev)}
             className={cn(
@@ -774,6 +914,110 @@ export function ScribeCoPilot({
             {isMuted ? <VolumeX size={15} /> : <Volume2 size={15} />}
             <span>Voice Speech</span>
           </button>
+
+          <button 
+            onClick={() => setShowVoiceSettings(prev => !prev)}
+            className={cn(
+              "p-2 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border",
+              showVoiceSettings 
+                ? "bg-slate-700 text-slate-100 border-slate-600" 
+                : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700/50"
+            )}
+            title="Voice & Speech Settings"
+          >
+            <Settings size={15} />
+          </button>
+
+          {showVoiceSettings && (
+            <div className="absolute right-0 top-12 w-72 bg-slate-900 border border-slate-750 rounded-xl shadow-2xl p-4 z-50 text-slate-200">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
+                <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Intake Voice Panel</span>
+                <button 
+                  onClick={() => setShowVoiceSettings(false)}
+                  className="text-slate-500 hover:text-slate-300 text-xs px-1"
+                >
+                  Close
+                </button>
+              </div>
+
+              {/* Voice selection */}
+              <div className="space-y-3">
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-[10px] font-bold text-slate-450 uppercase tracking-wide">Select Nurse Voice</label>
+                  <select
+                    value={selectedVoiceURI}
+                    onChange={(e) => {
+                      setSelectedVoiceURI(e.target.value);
+                      // Briefly test voice after choosing
+                      setTimeout(() => {
+                        speakVoicePrompt("Hello! I am Nurse Carey.");
+                      }, 50);
+                    }}
+                    className="w-full text-xs bg-slate-950 border border-slate-700 text-slate-200 rounded-lg p-2 focus:ring-1 focus:ring-blue-500 outline-none"
+                  >
+                    {availableVoices.filter(v => v.lang.startsWith('en')).map((v) => (
+                      <option key={v.voiceURI} value={v.voiceURI}>
+                        {v.name} ({v.lang})
+                      </option>
+                    ))}
+                    {availableVoices.filter(v => v.lang.startsWith('en')).length === 0 && (
+                      <option value="">System Default Voice</option>
+                    )}
+                  </select>
+                </div>
+
+                {/* Speed Rate Slider */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-[10px] font-bold text-slate-450 uppercase tracking-wide">
+                    <span>Speaking Speed</span>
+                    <span className="font-mono text-blue-400 font-normal">{speechRate.toFixed(2)}x</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0.75"
+                    max="1.25"
+                    step="0.05"
+                    value={speechRate}
+                    onChange={(e) => setSpeechRate(parseFloat(e.target.value))}
+                    className="w-full accent-blue-500 bg-slate-800 rounded-lg appearance-none h-1.5 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] text-slate-500 font-mono">
+                    <span>Empathetic & Slow</span>
+                    <span>Conversational</span>
+                  </div>
+                </div>
+
+                {/* Pitch Slider */}
+                <div className="flex flex-col gap-1">
+                  <div className="flex justify-between items-center text-[10px] font-bold text-slate-450 uppercase tracking-wide">
+                    <span>Tone & Pitch</span>
+                    <span className="font-mono text-blue-400 font-normal">{speechPitch.toFixed(2)}</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0.85"
+                    max="1.20"
+                    step="0.05"
+                    value={speechPitch}
+                    onChange={(e) => setSpeechPitch(parseFloat(e.target.value))}
+                    className="w-full accent-blue-500 bg-slate-800 rounded-lg appearance-none h-1.5 cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[8px] text-slate-500 font-mono">
+                    <span>Deeper / Warm</span>
+                    <span>Higher-toned</span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => speakVoicePrompt("Hello! I am your care assistant, Nurse Carey. I'll guide you through your rooming step with empathy.")}
+                  className="w-full py-1.5 text-center text-[11px] font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg border border-blue-500/30 transition-colors"
+                >
+                  Test Voice Tuning 🔊
+                </button>
+              </div>
+            </div>
+          )}
 
           {!isMuted && (
             <div className="flex items-center gap-1 bg-slate-800 px-2.5 py-1.5 rounded-lg border border-slate-700">

@@ -204,6 +204,7 @@ export function PatientChartView() {
           {activeTab === 'labs' && !isEditingNote && <LabsView patient={patient} orders={orders} setOrders={setOrders} />}
           {activeTab === 'scribe' && !isEditingNote && (
             <ScribeCoPilot 
+              key={patient.id}
               patient={patient}
               onImportHpi={(hpiText) => {
                 setNoteDraftContent(prev => prev ? prev + '\n\n' + hpiText : hpiText);

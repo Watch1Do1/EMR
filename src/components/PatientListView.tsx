@@ -1,7 +1,8 @@
-import { Search, UserPlus } from 'lucide-react';
+import { Search, UserPlus, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Patient } from '../types';
+import { cn } from '../lib/utils';
 
 const MOCK_PATIENTS: Patient[] = [
   { id: '1', firstName: 'Jane', lastName: 'Doe', dob: '1985-05-12', gender: 'female', mrn: 'MRN-12345' },
@@ -11,7 +12,41 @@ const MOCK_PATIENTS: Patient[] = [
 
 export function PatientListView() {
   const [searchTerm, setSearchTerm] = useState('');
+  const [resetState, setResetState] = useState<'idle' | 'resetting'>('idle');
   const navigate = useNavigate();
+
+  const handleResetDemoData = () => {
+    setResetState('resetting');
+    
+    // Clean all possible pre-visit, meds, and orders keys from localStorage
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (
+        key.startsWith('previsit_') || 
+        key.startsWith('meds_') || 
+        key.startsWith('orders_') ||
+        key.startsWith('screening_') ||
+        key.startsWith('session_phase_') ||
+        key.startsWith('consult_transcript_') ||
+        key.startsWith('detected_orders_') ||
+        key.startsWith('is_video_active_') ||
+        key.startsWith('active_detections_') ||
+        key.startsWith('billing_queries_')
+      )) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+    
+    // Remove the demo reset lock so Jane Doe's default seeded state re-initializes on load
+    localStorage.removeItem('demo_reset_active');
+
+    setTimeout(() => {
+      setResetState('idle');
+      window.location.reload();
+    }, 850);
+  };
 
   const filteredPatients = MOCK_PATIENTS.filter(p => 
     `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -25,10 +60,31 @@ export function PatientListView() {
           <h2 className="text-3xl font-bold tracking-tight text-slate-900">Patients</h2>
           <p className="text-slate-500 mt-1">Manage and access patient records.</p>
         </div>
-        <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm">
-          <UserPlus size={18} />
-          Add Patient
-        </button>
+         <div className="flex items-center gap-3">
+          <button 
+            onClick={handleResetDemoData}
+            disabled={resetState === 'resetting'}
+            className={cn(
+              "flex items-center gap-2 border text-sm px-4 py-2 rounded-lg font-medium transition-all shadow-sm disabled:opacity-55",
+              resetState === 'idle' 
+                ? "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 active:scale-[0.98]" 
+                : "border-slate-200 bg-slate-50 text-slate-400 cursor-not-allowed"
+            )}
+          >
+            <RotateCcw 
+              size={16} 
+              className={cn(
+                "text-slate-500",
+                resetState === 'resetting' && "animate-spin text-slate-400"
+              )} 
+            />
+            {resetState === 'idle' ? "Reset Test Data" : "Resetting..."}
+          </button>
+          <button className="flex items-center gap-2 bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 transition-colors shadow-sm">
+            <UserPlus size={18} />
+            Add Patient
+          </button>
+        </div>
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
