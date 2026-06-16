@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { usePersistentState } from '../lib/usePersistentState';
 import { 
   Camera, 
   Mic, 
@@ -28,6 +29,11 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { Patient, Medication, ClinicalOrder, OrderType, OrderStatus } from '../types';
+import { ScreeningMessage, ExamManeuver, DoctorQuery } from './scribe/types';
+import { RoomingPhase } from './scribe/RoomingPhase';
+import { TransitionPhase } from './scribe/TransitionPhase';
+import { VisitPhase } from './scribe/VisitPhase';
+import { ReviewPhase } from './scribe/ReviewPhase';
 
 function formatDate(dateStr: string) {
   if (!dateStr) return '';
@@ -49,30 +55,6 @@ interface ScribeCoPilotProps {
   orders?: ClinicalOrder[];
 }
 
-interface ScreeningMessage {
-  sender: 'ai' | 'patient';
-  text: string;
-  timestamp: string;
-}
-
-interface ExamManeuver {
-  id: string;
-  maneuver: string;
-  detectedAt: string;
-  confirmed?: boolean;
-  question: string;
-  findings?: string;
-  category: 'ortho' | 'cardio' | 'misc';
-}
-
-interface DoctorQuery {
-  id: string;
-  question: string;
-  suggestedAction: string;
-  category: 'billing' | 'clinical';
-  completed: boolean;
-}
-
 export function ScribeCoPilot({ 
   patient, 
   onImportHpi, 
@@ -87,21 +69,10 @@ export function ScribeCoPilot({
   // 'transition' -> Screening finished, waiting/notifying for doctor to enter
   // 'visit' -> Physician entered, active ambient scribe & visual exam tracking
   // 'review' -> Note generation, formatting, and audit trial preview
-  const [sessionPhase, setSessionPhase] = useState<'rooming' | 'transition' | 'visit' | 'review'>(() => {
-    const saved = localStorage.getItem(`session_phase_${patient.id}`);
-    if (saved === 'rooming' || saved === 'transition' || saved === 'visit' || saved === 'review') {
-      return saved as 'rooming' | 'transition' | 'visit' | 'review';
-    }
-    const isCompleted = localStorage.getItem(`previsit_completed_${patient.id}`) === 'true';
-    if (isCompleted) {
-      return 'transition';
-    }
-    return 'rooming';
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`session_phase_${patient.id}`, sessionPhase);
-  }, [sessionPhase, patient.id]);
+  const [sessionPhase, setSessionPhase] = usePersistentState<'rooming' | 'transition' | 'visit' | 'review'>(
+    `session_phase_${patient.id}`,
+    (localStorage.getItem(`previsit_completed_${patient.id}`) === 'true') ? 'transition' : 'rooming'
+  );
 
   // Audio / voice synthesizer state
   const [isMuted, setIsMuted] = useState(false);
@@ -240,43 +211,28 @@ export function ScribeCoPilot({
         { key: 'history_pmh_psh_allergies', label: "PMH / PSH / Allergies", prompt: "Thank you for sharing that with me. Just so I can update your chart perfectly before the doctor comes in, could you please tell me about any past medical conditions, previous surgeries, and any allergies you might have?" }
       ];
 
-  const [screeningStep, setScreeningStep] = useState<number>(() => {
-    const saved = localStorage.getItem(`screening_step_${patient.id}`);
-    if (saved !== null) {
-      const parsed = parseInt(saved, 10);
-      if (!isNaN(parsed)) return parsed;
-    }
-    return 0;
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`screening_step_${patient.id}`, screeningStep.toString());
-  }, [screeningStep, patient.id]);
+  const [screeningStep, setScreeningStep] = usePersistentState<number>(
+    `screening_step_${patient.id}`,
+    0
+  );
 
   const [userInput, setUserInput] = useState('');
   
-  const [screeningMessages, setScreeningMessages] = useState<ScreeningMessage[]>(() => {
-    const saved = localStorage.getItem(`screening_messages_${patient.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    const initialText = isFollowUp 
-      ? `Welcome back, ${patient.firstName}! It is so wonderful to see you again. I am Nurse Carey, and I'll be checking you in today. What is the main reason for your visit today?`
-      : `Hello there, ${patient.firstName}. I am Nurse Carey, and I'm so glad to assist with your check-in today. We want to take excellent care of you. What is the main reason for your visit today?`;
-    return [
-      {
-        sender: 'ai',
-        text: initialText,
-        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-      }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`screening_messages_${patient.id}`, JSON.stringify(screeningMessages));
-  }, [screeningMessages, patient.id]);
+  const [screeningMessages, setScreeningMessages] = usePersistentState<ScreeningMessage[]>(
+    `screening_messages_${patient.id}`,
+    (() => {
+      const initialText = isFollowUp 
+        ? `Welcome back, ${patient.firstName}! It is so wonderful to see you again. I am Nurse Carey, and I'll be checking you in today. What is the main reason for your visit today?`
+        : `Hello there, ${patient.firstName}. I am Nurse Carey, and I'm so glad to assist with your check-in today. We want to take excellent care of you. What is the main reason for your visit today?`;
+      return [
+        {
+          sender: 'ai',
+          text: initialText,
+          timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }
+      ];
+    })()
+  );
 
   const handleToggleVisitType = (newIsFollowUp: boolean) => {
     setIsFollowUp(newIsFollowUp);
@@ -299,19 +255,14 @@ export function ScribeCoPilot({
   const [isDoctorEntering, setIsDoctorEntering] = useState(false);
 
   // 3. active physician consultation / ambient dialogue state
-  const [consultTranscript, setConsultTranscript] = useState<string[]>(() => {
-    const saved = localStorage.getItem(`consult_transcript_${patient.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
+  const [consultTranscript, setConsultTranscript] = usePersistentState<string[]>(
+    `consult_transcript_${patient.id}`,
+    [
       `Dr. Smith: Hi ${patient.firstName}, good to see you today. I read the screening report. Let's look closer at your symptoms.`,
       "Patient: Yes, it is particularly uncomfortable today.",
       "Dr. Smith: Understood. Let's perform a physical assessment. Lean back and let your muscles fully relax..."
-    ];
-  });
+    ]
+  );
 
   const [isSimulatingAmbient, setIsSimulatingAmbient] = useState(false);
   const [simulationIndex, setSimulationIndex] = useState(0);
@@ -329,9 +280,7 @@ export function ScribeCoPilot({
     'Patient: "Okay, I\'ll do the bloodwork and physical therapy. Hopefully we\'ll know more soon."',
   ];
 
-  useEffect(() => {
-    localStorage.setItem(`consult_transcript_${patient.id}`, JSON.stringify(consultTranscript));
-  }, [consultTranscript, patient.id]);
+
 
   useEffect(() => {
     if (!isSimulatingAmbient) return;
@@ -352,21 +301,16 @@ export function ScribeCoPilot({
   }, [isSimulatingAmbient, simulationIndex]);
 
   // 3b. Detected ambient orders and medications
-  const [detectedOrders, setDetectedOrders] = useState<Array<{
+  const [detectedOrders, setDetectedOrders] = usePersistentState<Array<{
     id: string;
     type: 'lab' | 'imaging' | 'referral' | 'medication';
     name: string;
     details: string;
     status: 'detected' | 'approved' | 'declined';
     snippet: string;
-  }>>(() => {
-    const saved = localStorage.getItem(`detected_orders_${patient.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
+  }>>(
+    `detected_orders_${patient.id}`,
+    [
       {
         id: 'det-1',
         type: 'imaging',
@@ -383,12 +327,8 @@ export function ScribeCoPilot({
         status: 'detected',
         snippet: 'Dr. Smith: "I\'ll prescribe Celebrex 200mg daily to reduce knee joint inflammation. Take it with meals."'
       }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`detected_orders_${patient.id}`, JSON.stringify(detectedOrders));
-  }, [detectedOrders, patient.id]);
+    ]
+  );
 
   // Handle ambient parsing of new transcript line
   const handleAddNewTranscriptLine = (text: string) => {
@@ -523,14 +463,9 @@ export function ScribeCoPilot({
   };
 
   // Billing complexity suggestions showing dynamically during physician visit
-  const [billingQueries, setBillingQueries] = useState<DoctorQuery[]>(() => {
-    const saved = localStorage.getItem(`billing_queries_${patient.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
+  const [billingQueries, setBillingQueries] = usePersistentState<DoctorQuery[]>(
+    `billing_queries_${patient.id}`,
+    [
       {
         id: 'bq1',
         question: "Inquire about exacerbating/relieving factors (flexion vs extension) to reach Level 4 Chief History elements.",
@@ -552,33 +487,21 @@ export function ScribeCoPilot({
         category: 'clinical',
         completed: false
       }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`billing_queries_${patient.id}`, JSON.stringify(billingQueries));
-  }, [billingQueries, patient.id]);
+    ]
+  );
 
   // 4. Physical Exam Maneuver Capture (Webcam Simulation)
-  const [isVideoActive, setIsVideoActive] = useState(() => {
-    return localStorage.getItem(`is_video_active_${patient.id}`) === 'true';
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`is_video_active_${patient.id}`, isVideoActive ? 'true' : 'false');
-  }, [isVideoActive, patient.id]);
+  const [isVideoActive, setIsVideoActive] = usePersistentState<boolean>(
+    `is_video_active_${patient.id}`,
+    false
+  );
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [lastExamDetected, setLastExamDetected] = useState<string>('');
-  const [activeDetections, setActiveDetections] = useState<ExamManeuver[]>(() => {
-    const saved = localStorage.getItem(`active_detections_${patient.id}`);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return [
+  const [activeDetections, setActiveDetections] = usePersistentState<ExamManeuver[]>(
+    `active_detections_${patient.id}`,
+    [
       {
         id: 'em1',
         maneuver: 'Lachman Test (Right Knee)',
@@ -593,12 +516,8 @@ export function ScribeCoPilot({
         question: 'You did a stethoscope exam of the chest. Were there any abnormal crackles or lung findings detected?',
         category: 'cardio'
       }
-    ];
-  });
-
-  useEffect(() => {
-    localStorage.setItem(`active_detections_${patient.id}`, JSON.stringify(activeDetections));
-  }, [activeDetections, patient.id]);
+    ]
+  );
 
   // Custom text-to-speech speak utility
   const speakVoicePrompt = (text: string, onEndCallback?: () => void) => {
@@ -936,9 +855,10 @@ export function ScribeCoPilot({
         {/* Audio control bars and speaker status */}
         <div className="flex items-center gap-3 relative">
           <button 
+            type="button"
             onClick={() => setIsMuted(prev => !prev)}
             className={cn(
-              "p-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border",
+              "p-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors border cursor-pointer",
               isMuted 
                 ? "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white" 
                 : "bg-blue-600/10 text-blue-400 border-blue-900 hover:bg-blue-600/20"
@@ -950,9 +870,10 @@ export function ScribeCoPilot({
           </button>
 
           <button 
+            type="button"
             onClick={() => setShowVoiceSettings(prev => !prev)}
             className={cn(
-              "p-2 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border",
+              "p-2 rounded-lg text-xs font-semibold flex items-center justify-center transition-colors border cursor-pointer",
               showVoiceSettings 
                 ? "bg-slate-700 text-slate-100 border-slate-600" 
                 : "bg-slate-800/80 text-slate-400 border-slate-700 hover:text-white hover:bg-slate-700/50"
@@ -967,8 +888,9 @@ export function ScribeCoPilot({
               <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-3">
                 <span className="font-bold text-xs uppercase tracking-wider text-slate-300">Intake Voice Panel</span>
                 <button 
+                  type="button"
                   onClick={() => setShowVoiceSettings(false)}
-                  className="text-slate-500 hover:text-slate-300 text-xs px-1"
+                  className="text-slate-500 hover:text-slate-300 text-xs px-1 cursor-pointer"
                 >
                   Close
                 </button>
@@ -1045,7 +967,7 @@ export function ScribeCoPilot({
                 <button
                   type="button"
                   onClick={() => speakVoicePrompt("Hello! I am your care assistant, Nurse Carey. I'll guide you through your rooming step with empathy.")}
-                  className="w-full py-1.5 text-center text-[11px] font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg border border-blue-500/30 transition-colors"
+                  className="w-full py-1.5 text-center text-[11px] font-bold text-blue-400 bg-blue-500/10 hover:bg-blue-500/20 rounded-lg border border-blue-500/30 transition-colors cursor-pointer"
                 >
                   Test Voice Tuning 🔊
                 </button>
@@ -1069,806 +991,65 @@ export function ScribeCoPilot({
         <div className="flex-1 flex flex-col p-6 overflow-y-auto border-r border-slate-100 bg-white">
           
           {sessionPhase === 'rooming' && (
-            /* PHASE 1: PRE-VISIT ROOMING SERVICE */
-            <div className="flex-1 flex flex-col justify-between">
-              <div className="space-y-4">
-                <div className="bg-slate-50 border border-slate-200 p-4 rounded-xl">
-                  <div className="flex items-start gap-3">
-                    <UserCheck className="text-blue-600 shrink-0 mt-0.5" size={18} />
-                    <div className="flex-1">
-                      <h4 className="font-bold text-sm text-slate-800">Caring Patient Intake Active</h4>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Please hand this module to the patient. Nurse Carey will guide them through a conversational check-in, keeping them comfortable while mapping out their symptoms, timeline, and history.
-                      </p>
-
-                      {/* Visit Type Toggle */}
-                      <div className="mt-4 pt-3 border-t border-slate-200 flex flex-wrap items-center justify-between gap-2">
-                        <span className="text-[11px] font-bold text-slate-650 uppercase tracking-wider">AI Intake Patient Status:</span>
-                        <div className="flex bg-slate-200/70 p-0.5 rounded-lg border border-slate-300">
-                          <button
-                            type="button"
-                            onClick={() => handleToggleVisitType(false)}
-                            className={cn(
-                              "px-3 py-1 rounded text-[10px] font-extrabold tracking-tight transition-all cursor-pointer",
-                              !isFollowUp
-                                ? "bg-blue-600 text-white shadow-sm"
-                                : "text-slate-600 hover:text-slate-900"
-                            )}
-                          >
-                            New Patient Consult
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleToggleVisitType(true)}
-                            className={cn(
-                              "px-3 py-1 rounded text-[10px] font-extrabold tracking-tight transition-all cursor-pointer",
-                              isFollowUp
-                                ? "bg-blue-600 text-white shadow-sm"
-                                : "text-slate-600 hover:text-slate-900"
-                            )}
-                          >
-                            Established Follow-up
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                  
-                  {/* Step status dots */}
-                  <div className="flex items-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                    <span className="text-[10px] font-bold uppercase text-slate-400 mr-2">Screening steps:</span>
-                    {screeningSteps.map((step, idx) => (
-                      <div 
-                        key={step.key} 
-                        className={cn(
-                          "px-2.5 py-1 text-[10px] font-bold rounded-full border transition-all",
-                          screeningStep === idx 
-                            ? "bg-blue-600 text-white border-blue-500 shadow-sm animate-pulse" 
-                            : screeningStep > idx 
-                              ? "bg-emerald-50 text-emerald-700 border-emerald-200" 
-                              : "bg-slate-100 text-slate-400 border-slate-200"
-                        )}
-                      >
-                        {step.label}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Screening Conversations Box */}
-                <div className="space-y-3 max-h-[290px] overflow-y-auto pr-2">
-                  {screeningMessages.map((msg, i) => (
-                    <div 
-                      key={i} 
-                      className={cn(
-                        "p-3 rounded-xl max-w-[85%] text-sm transition-all",
-                        msg.sender === 'ai' 
-                          ? "bg-indigo-50/70 text-slate-800 border border-indigo-100 self-start mr-auto font-serif italic" 
-                          : "bg-blue-600 text-white self-end ml-auto shadow-sm"
-                      )}
-                    >
-                      <p>{msg.text}</p>
-                      <span className={cn("text-[9px] mt-1 block text-right", msg.sender === 'ai' ? "text-slate-400" : "text-blue-200")}>
-                        {msg.timestamp}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Action bar patient feedback */}
-              <div className="space-y-2 mt-4 pt-4 border-t border-slate-150">
-                {isListeningForInput && (
-                  <div className="flex items-center gap-2 bg-rose-50 border border-rose-200 text-rose-700 px-3 py-1.5 rounded-lg text-xs animate-pulse select-none self-start">
-                    <span className="relative flex h-2 w-2">
-                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-455 opacity-75"></span>
-                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
-                    </span>
-                    <span className="font-extrabold font-mono text-[10px] uppercase tracking-wide">🎤 Continuous Microphone Dictation is active... Speak naturally now!</span>
-                  </div>
-                )}
-
-                <div className="flex items-center gap-3">
-                  <input
-                    type="text"
-                    placeholder={isListeningForInput ? "My mic is active... Speak now!" : "Type symptoms response or click 'Talk to AI' to speak..."}
-                    value={userInput}
-                    onChange={(e) => setUserInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSendScreening(userInput);
-                    }}
-                    className={cn(
-                      "flex-1 border rounded-lg px-4 py-2.5 text-sm outline-none transition-all placeholder:italic",
-                      isListeningForInput 
-                        ? "bg-rose-50/40 border-rose-300 focus:ring-2 focus:ring-rose-500/10 focus:border-rose-450" 
-                        : "bg-slate-50 border-slate-200 focus:bg-white focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                    )}
-                  />
-
-                  {/* Dynamic Mic Rec Toggle */}
-                  <button
-                    type="button"
-                    onClick={toggleVoiceInput}
-                    className={cn(
-                      "px-3.5 py-2.5 rounded-lg border text-xs font-bold transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer",
-                      isListeningForInput 
-                        ? "bg-rose-600 text-white border-rose-700 animate-pulse shadow-sm" 
-                        : "bg-blue-50/50 text-blue-700 border-blue-200 hover:bg-blue-105"
-                    )}
-                    title={isListeningForInput ? "Cancel Mic Listening" : "Speak your answers out loud (Mic Active)"}
-                  >
-                    <Mic size={14} className={cn(isListeningForInput ? "text-white" : "text-blue-600")} />
-                    <span>{isListeningForInput ? "Listening..." : "Talk to AI"}</span>
-                  </button>
-
-                  {/* Patient response simulator */}
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      const presetAnswers = isFollowUp
-                        ? [
-                            "I am coming in today for my regular follow up of my chronic hypertension and to check my blood sugar. I also need refills on my Lisinopril and Metformin.",
-                            "No significant changes since my last visit. My medical condition, active medications, and allergies are all exactly the same, and I feel stable."
-                          ]
-                        : [
-                            "I am here because of some severe pain and instability in my right knee after pivot training last Saturday.",
-                            "It started suddenly right after a pivot twist on Saturday night, and walking down stairs is particularly painful.",
-                            "I rate the pain as a 7 out of 10 during active walking or when flexing the joint.",
-                            "I have a surgical history of left ankle repair in 2020. No major chronic diseases, and my only allergy is Penicillin which causes moderate hives reactions."
-                          ];
-                      if (screeningStep < presetAnswers.length) {
-                        const ans = presetAnswers[screeningStep];
-                        setUserInput(ans);
-                        // Conversational flow: auto-submit the simulated answer after a 900ms visual preview
-                        setTimeout(() => {
-                          handleSendScreening(ans);
-                        }, 900);
-                      }
-                    }}
-                    className="px-3 py-2 hover:bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-xs font-bold transition-colors flex items-center gap-1.5 shrink-0"
-                    title="Simulate Speech Dictation"
-                  >
-                    <span>Simulate Voice</span>
-                  </button>
-
-                  <button 
-                    onClick={() => handleSendScreening(userInput)}
-                    className="bg-blue-600 text-white font-bold text-xs px-5 py-2.5 rounded-lg hover:bg-blue-700 transition"
-                  >
-                    Submit
-                  </button>
-                </div>
-              </div>
-            </div>
+            <RoomingPhase
+              patient={patient}
+              isFollowUp={isFollowUp}
+              handleToggleVisitType={handleToggleVisitType}
+              screeningStep={screeningStep}
+              screeningSteps={screeningSteps}
+              screeningMessages={screeningMessages}
+              isListeningForInput={isListeningForInput}
+              userInput={userInput}
+              setUserInput={setUserInput}
+              handleSendScreening={handleSendScreening}
+              toggleVoiceInput={toggleVoiceInput}
+            />
           )}
 
           {sessionPhase === 'transition' && (
-            /* PHASE 1.5: THE DOCTOR IS READY TO ENTER */
-            <div className="flex-1 flex flex-col justify-center items-center text-center p-8 space-y-6 max-w-md mx-auto">
-              <div className="w-16 h-16 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center text-amber-500">
-                <UserCheck size={32} />
-              </div>
-              <div>
-                <h3 className="text-xl font-bold text-slate-800">Pre-Visit Screening Complete</h3>
-                <p className="text-sm text-slate-500 mt-2 leading-relaxed">
-                  The rooming assistant has checked in {patient.firstName} {patient.lastName}. The EMR is awaiting physician entry to begin "Scribe Mode" ambient dialogue recording & mechanical exam tracking.
-                </p>
-              </div>
-
-              {/* Screening summary breakdown */}
-              <div className="w-full bg-slate-50 border border-slate-200 rounded-xl p-4 text-left space-y-2">
-                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Intake Answers Logged</p>
-                {screeningMessages.filter(m => m.sender === 'patient').map((m, i) => (
-                  <p key={i} className="text-xs text-slate-705 truncate">
-                    <span className="font-bold text-blue-600 mr-1.5">✓</span> {m.text}
-                  </p>
-                ))}
-              </div>
-
-              <button 
-                onClick={handleDoctorEntersRoom}
-                disabled={isDoctorEntering}
-                className={cn(
-                  "w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition duration-200 flex items-center justify-center gap-2 text-sm shadow-md",
-                  isDoctorEntering && "bg-blue-500 opacity-90 cursor-not-allowed"
-                )}
-              >
-                {isDoctorEntering ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    <span>Processing Doctor Entry...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>🚪 PHYSICIAN ENTERS THE ROOM</span>
-                    <ArrowRight size={16} />
-                  </>
-                )}
-              </button>
-            </div>
+            <TransitionPhase
+              patient={patient}
+              screeningMessages={screeningMessages}
+              handleDoctorEntersRoom={handleDoctorEntersRoom}
+              isDoctorEntering={isDoctorEntering}
+            />
           )}
 
           {sessionPhase === 'visit' && (
-            /* PHASE 2: PHYSICIAN ACTIVE AMBIENT VISIT SCRIBE */
-            <div className="flex-1 flex flex-col justify-between">
-              
-              <div className="grid grid-cols-[1.2fr_1fr] gap-6 flex-1 min-h-0">
-                
-                {/* Visual Bio-Mechanic Exam Scribe */}
-                <div className="space-y-4 flex flex-col">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                      <Video size={14} className="text-blue-500" />
-                      Visual Examination Stream
-                    </span>
-
-                    <button 
-                      onClick={() => setIsVideoActive(p => !p)}
-                      className={cn(
-                        "px-2 px-3 py-1 rounded text-[10px] font-bold transition-all border",
-                        isVideoActive 
-                          ? "bg-red-50 text-red-650 border-red-100 hover:bg-red-100" 
-                          : "bg-slate-100 text-slate-650 border-slate-200 hover:bg-slate-200"
-                      )}
-                    >
-                      {isVideoActive ? "Camera ON" : "Camera STBY"}
-                    </button>
-                  </div>
-
-                  {/* Simulated exam biomechanical monitor panel */}
-                  <div className="relative flex-1 bg-slate-950 rounded-xl overflow-hidden border border-slate-800 flex items-center justify-center min-h-[190px]">
-                    {isVideoActive ? (
-                      <>
-                        <video 
-                          ref={videoRef} 
-                          autoPlay 
-                          playsInline 
-                          muted 
-                          className="absolute inset-0 w-full h-full object-cover opacity-60"
-                        />
-                        <canvas 
-                          ref={canvasRef} 
-                          width={320} 
-                          height={240} 
-                          className="absolute inset-0 w-full h-full pointer-events-none z-10"
-                        />
-                        <div className="absolute top-3 left-3 bg-red-650 text-white text-[9px] font-bold tracking-wider font-mono px-2 py-0.5 rounded flex items-center gap-1 animate-pulse shadow-sm">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white shrink-0" />
-                          AMBIENT VISUAL ASSESS
-                        </div>
-                      </>
-                    ) : (
-                      <div className="text-center p-4 max-w-[200px]">
-                        <Camera className="text-slate-550 mx-auto mb-2 opacity-50" size={24} />
-                        <p className="text-xs text-slate-400 font-bold">Examiner Assist is Standby</p>
-                        <p className="text-[10px] text-slate-500 mt-1 leading-normal">
-                          Enable camera to start tracking knee maneuvers or thoracic auscultations automatically.
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Ambient Dialogue Monitor */}
-                  <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 flex flex-col space-y-2 max-h-[160px] overflow-auto">
-                    <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
-                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
-                        <Mic size={11} className="text-indigo-500" />
-                        Live Conversation stream
-                      </span>
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          id="btn_toggle_ambient_simulation"
-                          type="button"
-                          onClick={() => {
-                            setIsSimulatingAmbient(!isSimulatingAmbient);
-                            if (!isSimulatingAmbient && simulationIndex === AMBIENT_DEMO_LINES.length) {
-                              setSimulationIndex(0);
-                            }
-                          }}
-                          className={cn(
-                            "text-[8px] font-extrabold px-2 py-0.5 rounded border transition-all cursor-pointer flex items-center gap-0.5 uppercase select-none leading-none",
-                            isSimulatingAmbient 
-                              ? "bg-amber-50 text-amber-800 border-amber-300 animate-pulse" 
-                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
-                          )}
-                        >
-                          ⚡ {isSimulatingAmbient ? "Simulating Audio..." : "Auto-Play Simulator"}
-                        </button>
-                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase animate-pulse">Listening</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5 text-xs text-slate-600 leading-normal font-sans pr-1">
-                      {consultTranscript.map((t, idx) => (
-                        <p key={idx} className={idx === consultTranscript.length - 1 ? "font-semibold text-slate-800" : ""}>
-                          {t}
-                        </p>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* AI Ambient Order Extraction Desk */}
-                  <div className="bg-white border border-slate-200 rounded-xl p-3.5 space-y-3 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5 pb-0.5">
-                        <Sparkles size={14} className="text-indigo-650 animate-pulse" />
-                        <span className="font-bold text-xs uppercase tracking-tight text-slate-800">AI Scribe Assist Panel</span>
-                      </div>
-                      <span className="text-[9px] bg-slate-100 text-slate-500 font-bold px-1.5 py-0.5 rounded uppercase font-mono tracking-tight select-none">
-                        Extractor Active
-                      </span>
-                    </div>
-
-                    {/* Speech presets / typing */}
-                    <div className="space-y-2">
-                      <p className="text-[9px] font-bold text-slate-450 uppercase tracking-wider font-mono">Speak / Simulate Clinician orders</p>
-                      <div className="flex flex-wrap gap-1">
-                        <button 
-                          onClick={() => handleAddNewTranscriptLine('Dr. Smith: "We should also get a standard X-Ray of the right knee (2 views) to inspect cartilage structures before surgery."')}
-                          className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-750 font-bold hover:bg-indigo-100 px-2 py-1.5 rounded transition cursor-pointer"
-                        >
-                          🗣️ "Order Knee X-Ray"
-                        </button>
-                        <button 
-                          onClick={() => handleAddNewTranscriptLine('Dr. Smith: "Let\'s schedule some routine laboratory bloodwork checkup, particularly a Hemoglobin A1c test to monitor sugar level trends."')}
-                          className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-750 font-bold hover:bg-indigo-100 px-2 py-1.5 rounded transition cursor-pointer"
-                        >
-                          🗣️ "Order Hemoglobin A1c"
-                        </button>
-                        <button 
-                          onClick={() => handleAddNewTranscriptLine('Dr. Smith: "To build extension range of motion, I will submit a Referral to Physical Therapy for rehabilitation exercises."')}
-                          className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-750 font-bold hover:bg-indigo-100 px-2 py-1.5 rounded transition cursor-pointer"
-                        >
-                          🗣️ "Refer to PT"
-                        </button>
-                        <button 
-                          onClick={() => handleAddNewTranscriptLine('Dr. Smith: "Good. For joint aching, let\'s prescribe you Meloxicam 15mg oral once daily."')}
-                          className="text-[9px] bg-indigo-50 border border-indigo-100 text-indigo-750 font-bold hover:bg-indigo-100 px-2 py-1.5 rounded transition cursor-pointer"
-                        >
-                          🗣️ "Prescribe Meloxicam"
-                        </button>
-                      </div>
-                      
-                      <div className="flex gap-1.5 pt-1.5">
-                        <input 
-                          type="text" 
-                          placeholder="Or type custom statement e.g. 'I'll prescribe Lipitor 20mg'..."
-                          id="voice-order-input-fld"
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              const val = (e.target as HTMLInputElement).value;
-                              if (val.trim()) {
-                                handleAddNewTranscriptLine(`Dr. Smith: "${val}"`);
-                                (e.target as HTMLInputElement).value = '';
-                              }
-                            }
-                          }}
-                          className="flex-1 text-[11px] bg-slate-50 border border-slate-200 outline-none px-2.5 py-1.5 rounded-lg focus:bg-white focus:ring-1 focus:ring-indigo-500/20"
-                        />
-                        <button 
-                          onClick={() => {
-                            const el = document.getElementById('voice-order-input-fld') as HTMLInputElement;
-                            if (el && el.value.trim()) {
-                              handleAddNewTranscriptLine(`Dr. Smith: "${el.value}"`);
-                              el.value = '';
-                            }
-                          }}
-                          className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] px-3.5 py-1.5 rounded-lg active:scale-95 transition"
-                        >
-                          Enter
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Queued extractions tracker */}
-                    <div className="space-y-1.5 pt-2 border-t border-slate-100">
-                      <div className="flex justify-between items-center">
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-widest font-mono">Ambient Real-Time Extractor Queue</span>
-                        <span className="text-[9px] bg-emerald-50 text-emerald-700 font-bold px-1.5 rounded-md border border-emerald-100">
-                          {detectedOrders.length} Detections
-                        </span>
-                      </div>
-
-                      <div className="space-y-1.5 max-h-[185px] overflow-y-auto pr-0.5">
-                        {detectedOrders.map(det => (
-                          <div 
-                            key={det.id} 
-                            className={cn(
-                              "p-2 rounded-lg border text-xs relative overflow-hidden transition-all",
-                              det.status === 'detected' 
-                                ? "bg-slate-50 border-slate-200" 
-                                : det.status === 'approved' 
-                                  ? "bg-emerald-50/50 border-emerald-200" 
-                                  : "bg-slate-100 border-slate-200 opacity-60 line-through"
-                            )}
-                          >
-                            <div className="flex justify-between items-center pb-1">
-                              <span className={cn(
-                                "px-1.5 py-0.2 rounded text-[8px] font-bold uppercase tracking-tight",
-                                det.type === 'medication' ? "bg-amber-100 text-amber-800" : "bg-blue-100 text-blue-800"
-                              )}>
-                                {det.type}
-                              </span>
-                              <span className="text-[8px] font-mono text-indigo-600 font-bold">Confidence: 96%</span>
-                            </div>
-
-                            <p className="font-bold text-slate-900 leading-tight text-xs">{det.name}</p>
-                            <p className="text-[10px] text-slate-500 leading-snug">{det.details}</p>
-                            <p className="text-[9px] text-slate-400 italic bg-white/75 p-1 rounded mt-1 border border-slate-100/50 block overflow-hidden text-ellipsis whitespace-nowrap"> Heard: {det.snippet} </p>
-
-                            {det.status === 'detected' && (
-                              <div className="flex gap-2 mt-2 pt-1.5 border-t border-slate-100">
-                                <button 
-                                  onClick={() => {
-                                    setDetectedOrders(prev => prev.map(o => o.id === det.id ? { ...o, status: 'approved' } : o));
-                                    
-                                    // Persistent dispatch back upstream to clinical chart state
-                                    if (det.type === 'medication' && onAddMedication) {
-                                      onAddMedication({
-                                        id: `m-${Date.now()}`,
-                                        name: det.name,
-                                        dosage: det.details.split('Dosage: ')[1]?.split(',')[0] || '1 tablet',
-                                        route: 'oral',
-                                        frequency: 'Daily',
-                                        startDate: new Date().toISOString().split('T')[0],
-                                        prescribedBy: 'Dr. John Smith, MD',
-                                        status: 'active'
-                                      });
-                                    } else if (onAddOrder) {
-                                      let mapType = OrderType.LAB;
-                                      if (det.type === 'imaging') mapType = OrderType.IMAGING;
-                                      else if (det.type === 'referral') mapType = OrderType.REFERRAL;
-
-                                      onAddOrder({
-                                        id: `o-${Date.now()}`,
-                                        patientId: patient.id,
-                                        type: mapType,
-                                        description: det.name,
-                                        date: new Date().toISOString().split('T')[0],
-                                        providerId: 'dr_john_smith',
-                                        status: OrderStatus.ORDERED
-                                      });
-                                    }
-                                  }}
-                                  className="flex items-center gap-1 text-[9px] bg-slate-900 hover:bg-slate-950 text-white font-bold px-2 py-1 rounded transition cursor-pointer"
-                                >
-                                  <Check size={10} />
-                                  Approve & Add to Chart
-                                </button>
-                                <button 
-                                  onClick={() => {
-                                    setDetectedOrders(prev => prev.map(o => o.id === det.id ? { ...o, status: 'declined' } : o));
-                                  }}
-                                  className="text-[9px] border border-slate-200 hover:bg-slate-100 font-medium text-slate-550 px-2 py-1 rounded transition cursor-pointer"
-                                >
-                                  Decline
-                                </button>
-                              </div>
-                            )}
-
-                            {det.status === 'approved' && (
-                              <div className="absolute top-1.5 right-1.5 flex items-center gap-1 text-emerald-700 bg-emerald-100/50 px-1 py-0.5 rounded text-[8px] font-bold">
-                                <Check size={8} />
-                                Approved
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                        {detectedOrders.length === 0 && (
-                          <div className="p-4 text-center text-[11px] text-slate-400 italic">
-                            No companion healthcare items have been voiced yet. Try saying "Let's prescribe Meloxicam" above.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-
-                {/* Exam detection confirmators */}
-                <div className="space-y-3 flex flex-col min-h-0 overflow-y-auto">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">
-                    Exam Detections & Confirmations
-                  </span>
-
-                  <div className="space-y-2.5">
-                    {activeDetections.map(item => (
-                      <div 
-                        key={item.id} 
-                        className={cn(
-                          "p-3 rounded-lg border text-xs transition-colors",
-                          item.confirmed === undefined 
-                            ? "bg-amber-50/70 border-amber-250 hover:bg-amber-50" 
-                            : item.confirmed 
-                              ? "bg-red-55/10 border-red-200" 
-                              : "bg-emerald-55/10 border-emerald-250"
-                        )}
-                      >
-                        <p className="font-bold text-slate-800 flex items-center gap-1">
-                          <Stethoscope size={13} className="text-blue-500 shrink-0" />
-                          {item.maneuver}
-                        </p>
-                        
-                        <p className="text-[11px] text-slate-600 mt-2 italic bg-white/40 p-1.5 rounded">
-                          {item.question}
-                        </p>
-
-                        {item.confirmed === undefined ? (
-                          <div className="flex gap-2 mt-3 pt-2 border-t border-slate-100">
-                            <button
-                              onClick={() => handleConfirmManeuver(
-                                item.id, 
-                                true, 
-                                item.category === 'ortho' ? 'Positive lachman with abnormal joint laxity.' : 'Abnormal heart murmuring findings.'
-                              )}
-                              className="bg-white hover:bg-red-50 text-red-700 border border-slate-200 px-3 py-1 font-bold rounded-lg text-[10px] transition shadow-sm"
-                            >
-                              Yes (Abnormal)
-                            </button>
-                            <button 
-                              onClick={() => handleConfirmManeuver(
-                                item.id, 
-                                false, 
-                                'Negative (Normal exam findings, stable endpoint.)'
-                              )}
-                              className="bg-white hover:bg-emerald-50 text-emerald-700 border border-slate-200 px-3 py-1 font-bold rounded-lg text-[10px] transition shadow-sm"
-                            >
-                              No (Normal findings)
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="mt-2.5 p-1.5 bg-white border border-slate-200 rounded flex items-center justify-between text-[11px]">
-                            <span className="font-bold flex items-center gap-1 text-slate-700">
-                              <CheckCircle size={12} className={item.confirmed ? "text-red-500" : "text-emerald-500"} />
-                              Status: {item.confirmed ? 'Positive' : 'Normal'}
-                            </span>
-                            <span className="text-slate-500 text-[10px]">{item.findings}</span>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Doctor Voice confirming helper info */}
-                  <div className="bg-slate-100 rounded-lg p-2.5 text-[10px] text-slate-500 leading-normal border border-slate-200/60 mt-auto flex gap-1.5">
-                    <HelpCircle size={14} className="shrink-0 text-slate-400 mt-0.5" />
-                    <span>The AI prompts out loud following exams for instant validation. Check response options above or say normal to register.</span>
-                  </div>
-
-                </div>
-
-              </div>
-
-              {/* Visit Phase compilation triggers */}
-              <div className="mt-4 pt-4 border-t border-slate-150 flex justify-between items-center bg-white">
-                <div className="text-xs text-slate-500 flex items-center gap-2">
-                  <div className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-ping" />
-                  <span>Ambient monitoring tracking active. Confirms recorded in note.</span>
-                </div>
-                
-                <button 
-                  onClick={() => {
-                    setIsVideoActive(false);
-                    setSessionPhase('review');
-                  }}
-                  className="bg-slate-900 text-white font-bold text-xs px-6 py-2.5 rounded-lg hover:bg-slate-800 transition duration-200 shadow flex items-center gap-1.5"
-                >
-                  <span>Generate Complete Chart Note</span>
-                  <ArrowRight size={14} />
-                </button>
-              </div>
-
-            </div>
+            <VisitPhase
+              patient={patient}
+              isVideoActive={isVideoActive}
+              setIsVideoActive={setIsVideoActive}
+              videoRef={videoRef}
+              canvasRef={canvasRef}
+              isSimulatingAmbient={isSimulatingAmbient}
+              setIsSimulatingAmbient={setIsSimulatingAmbient}
+              simulationIndex={simulationIndex}
+              setSimulationIndex={setSimulationIndex}
+              AMBIENT_DEMO_LINES={AMBIENT_DEMO_LINES}
+              consultTranscript={consultTranscript}
+              handleAddNewTranscriptLine={handleAddNewTranscriptLine}
+              detectedOrders={detectedOrders}
+              setDetectedOrders={setDetectedOrders}
+              onAddMedication={onAddMedication}
+              onAddOrder={onAddOrder}
+              activeDetections={activeDetections}
+              handleConfirmManeuver={handleConfirmManeuver}
+              setSessionPhase={setSessionPhase}
+            />
           )}
 
           {sessionPhase === 'review' && (
-            /* PHASE 3: FINAL CLINICAL NOTE SYNTHESIS AND CONFIRMATION */
-            <div className="flex-1 flex flex-col justify-between">
-              
-              <div className="space-y-4">
-                <div className="bg-emerald-50 border border-emerald-100 p-3 rounded-xl flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle className="text-emerald-600 shrink-0" size={18} />
-                    <div>
-                      <p className="text-xs font-bold text-emerald-800">Complete Chart Note Prepared!</p>
-                      <p className="text-[10px] text-emerald-600 mt-0.5">Aggregated pre-visit screening history, clinician dialogues, and biomechanical orthopedic signs.</p>
-                    </div>
-                  </div>
-                  
-                  <button 
-                    onClick={() => {
-                      // Trigger fully unified copy to EMR notes
-                      onImportHpi(getCompiledUnifiedNote());
-                    }}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition-colors"
-                  >
-                    <ClipboardCopy size={13} />
-                    Import Narrative to EMR
-                  </button>
-                </div>
-
-                <div className="border border-slate-200 rounded-xl overflow-hidden shadow-inner font-mono text-xs bg-slate-50 p-4 leading-normal text-slate-700 h-[360px] overflow-y-auto">
-                  <pre className="whitespace-pre-wrap font-sans">{getCompiledUnifiedNote()}</pre>
-                </div>
-
-                {/* Discharge Booklet & Printable Requisition Folder */}
-                <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 shadow-sm no-print">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-100">
-                    <div className="flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-                        <Printer size={16} />
-                      </div>
-                      <div>
-                        <h4 className="font-bold text-sm text-slate-900">Patient Checkout & Requisitions Bundle</h4>
-                        <p className="text-[11px] text-slate-500">Persistently captured items from this clinical encounter, prepared for physical printing.</p>
-                      </div>
-                    </div>
-                    
-                    <button 
-                      onClick={() => window.print()}
-                      className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                    >
-                      <Printer size={13} />
-                      Print All Patient Leaflets
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    {/* Prescriptions */}
-                    <div className="border border-slate-150 rounded-lg p-3.5 bg-slate-50/50 space-y-2">
-                      <div className="flex justify-between items-center mb-1 select-none">
-                        <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider bg-amber-50 px-2 py-0.5 rounded border border-amber-100 font-mono">Prescription Pad</span>
-                        <span className="text-xs font-bold text-slate-700">{detectedOrders.filter(o => o.type === 'medication' && o.status === 'approved').length} Active</span>
-                      </div>
-                      
-                      <div className="space-y-1.5 max-h-[110px] overflow-y-auto">
-                        {detectedOrders.filter(o => o.type === 'medication' && o.status === 'approved').map(med => (
-                          <div key={med.id} className="text-xs bg-white border border-slate-200/80 p-2 rounded">
-                            <p className="font-bold text-slate-900">{med.name}</p>
-                            <p className="text-[10px] text-slate-550 italic mt-0.5">{med.details}</p>
-                          </div>
-                        ))}
-                        {detectedOrders.filter(o => o.type === 'medication' && o.status === 'approved').length === 0 && (
-                          <p className="text-[11px] text-slate-400 italic text-center py-2 select-none">No medications ordered in Scribe during this visit.</p>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Labs, Studies, & Referrals Booklet */}
-                    <div className="border border-slate-150 rounded-lg p-3.5 bg-slate-50/50 space-y-2">
-                      <div className="flex justify-between items-center mb-1 select-none">
-                        <span className="text-[10px] font-bold text-blue-800 uppercase tracking-wider bg-blue-50 px-2 py-0.5 rounded border border-blue-100 font-mono">Orders & Referrals Booklet</span>
-                        <span className="text-xs font-bold text-slate-700">{detectedOrders.filter(o => o.type !== 'medication' && o.status === 'approved').length} Active</span>
-                      </div>
-                      
-                      <div className="space-y-1.5 max-h-[110px] overflow-y-auto">
-                        {detectedOrders.filter(o => o.type !== 'medication' && o.status === 'approved').map(ord => (
-                          <div key={ord.id} className="text-xs bg-white border border-slate-200/80 p-2 rounded">
-                            <p className="font-bold text-slate-900">{ord.name}</p>
-                            <span className="text-[8px] uppercase tracking-tight text-slate-400 font-bold">{ord.type} check</span>
-                          </div>
-                        ))}
-                        {detectedOrders.filter(o => o.type !== 'medication' && o.status === 'approved').length === 0 && (
-                          <p className="text-[11px] text-slate-400 italic text-center py-2 select-none">No labs, diagnostic scans or referrals ordered in Scribe.</p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Print Layout Overlay for physical print output */}
-                <div className="hidden print:block fixed inset-0 bg-white z-[9999] p-10 font-sans text-stone-900">
-                  <div className="text-center pb-6 border-b-2 border-slate-900">
-                    <h2 className="text-3xl font-extrabold tracking-tight">PATIENT LEAFLET & CARE INSTRUCTIONS</h2>
-                    <p className="text-sm font-mono mt-1 text-slate-500">Date: {new Date().toLocaleDateString()} • Metropolitan Med-Center</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 py-4 text-xs border-b border-slate-350">
-                    <div>
-                      <p className="font-bold uppercase text-[10px] text-slate-400">PATIENT DEMOGRAPHICS</p>
-                      <p className="text-sm font-bold mt-1 text-slate-950">{patient.lastName}, {patient.firstName}</p>
-                      <p>DOB: {formatDate(patient.dob)} • MRN: {patient.mrn}</p>
-                    </div>
-                    <div>
-                      <p className="font-bold uppercase text-[10px] text-slate-400">ORDERING PROVIDER</p>
-                      <p className="text-sm font-bold mt-1 text-slate-950">Dr. John Smith, MD</p>
-                      <p>Clinic: Orthopedic Rehab Group</p>
-                    </div>
-                  </div>
-
-                  {/* Medications list printed block */}
-                  <div className="py-4 border-b border-slate-200">
-                    <h3 className="font-bold text-sm text-slate-900 mb-2 uppercase tracking-wide">💊 ACTIVE PRESCRIPTIONS AUTHORIZED TODAY</h3>
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-50 text-slate-500 font-bold">
-                        <tr>
-                          <th className="py-2 border-b border-slate-200">Medicine Name</th>
-                          <th className="py-2 border-b border-slate-200">Instruction & Dosage Details</th>
-                          <th className="py-2 border-b border-slate-200">Refill Authorization</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detectedOrders.filter(o => o.type === 'medication' && o.status === 'approved').map(med => (
-                          <tr key={med.id} className="border-b border-slate-100">
-                            <td className="py-2.5 font-bold">{med.name}</td>
-                            <td className="py-2.5">{med.details}</td>
-                            <td className="py-2.5 font-mono">Refills: 2 (Authorized)</td>
-                          </tr>
-                        ))}
-                        {detectedOrders.filter(o => o.type === 'medication' && o.status === 'approved').length === 0 && (
-                          <tr>
-                            <td colSpan={3} className="py-4 text-center text-slate-400 italic">No direct outpatient medications written during this session.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  {/* Studies Ordered printed block */}
-                  <div className="py-4">
-                    <h3 className="font-bold text-sm text-slate-900 mb-2 uppercase tracking-wide font-sans">🔬 DIAGNOSTIC IMAGING, LABS & CONSULTING REFERRALS</h3>
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-slate-50 text-slate-500 font-bold">
-                        <tr>
-                          <th className="py-2 border-b border-slate-200">Clinical Order</th>
-                          <th className="py-2 border-b border-slate-200">Type Category</th>
-                          <th className="py-2 border-b border-slate-200">Indications / ICD-10 Code</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detectedOrders.filter(o => o.type !== 'medication' && o.status === 'approved').map(ord => (
-                          <tr key={ord.id} className="border-b border-slate-100">
-                            <td className="py-2.5 font-bold">{ord.name}</td>
-                            <td className="py-2.5 uppercase text-slate-500 text-[10px] font-mono">{ord.type}</td>
-                            <td className="py-2.5 italic text-slate-650">{ord.details}</td>
-                          </tr>
-                        ))}
-                        {detectedOrders.filter(o => o.type !== 'medication' && o.status === 'approved').length === 0 && (
-                          <tr>
-                            <td colSpan={3} className="py-4 text-center text-slate-400 italic">No secondary diagnostic testing orders completed during this session.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="pt-20 text-xs flex justify-between items-end">
-                    <div>
-                      <div className="border-b border-slate-900 w-52 h-6" />
-                      <p className="mt-1 font-semibold text-slate-600">Clinician Signature Verification</p>
-                    </div>
-                    <div>
-                      <p className="text-right text-slate-400 text-[9px] font-mono">ENCOUNTER CODE: EMC-6512-AMB</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-slate-150 flex justify-between items-center">
-                <button 
-                  onClick={() => {
-                    // Reset session sequence
-                    setScreeningStep(0);
-                    setSessionPhase('rooming');
-                    setScreeningMessages([
-                      {
-                        sender: 'ai',
-                        text: isFollowUp 
-                          ? `Welcome back, ${patient.firstName}! It is so wonderful to see you again. I am Nurse Carey, and I'll be checking you in today. What is the main reason for your visit today?`
-                          : `Hello there, ${patient.firstName}. I am Nurse Carey, and I'm so glad to assist with your check-in today. We want to take excellent care of you. What is the main reason for your visit today?`,
-                        timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                      }
-                    ]);
-                  }}
-                  className="px-4 py-2 hover:bg-slate-100 text-slate-600 border border-slate-200 rounded-lg text-xs font-bold transition-colors"
-                >
-                  Restart Scribe Flow
-                </button>
-                
-                <p className="text-[10px] text-slate-400">Locked with timestamp compliance. Secured with narrative-first integrity.</p>
-              </div>
-
-            </div>
+            <ReviewPhase
+              patient={patient}
+              getCompiledUnifiedNote={getCompiledUnifiedNote}
+              onImportHpi={onImportHpi}
+              detectedOrders={detectedOrders}
+              setScreeningStep={setScreeningStep}
+              setSessionPhase={setSessionPhase}
+              setScreeningMessages={setScreeningMessages}
+              isFollowUp={isFollowUp}
+            />
           )}
 
         </div>
@@ -1936,7 +1117,7 @@ export function ScribeCoPilot({
                           type="checkbox" 
                           checked={q.completed} 
                           onChange={() => {}} // toggled on div click
-                          className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" 
+                          className="mt-0.5 rounded border-slate-350 text-indigo-600 focus:ring-indigo-500" 
                         />
                         <div>
                           <p className="font-semibold leading-relaxed">{q.question}</p>

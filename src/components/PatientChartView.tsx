@@ -25,6 +25,7 @@ import { NoteEditor } from './NoteEditor';
 import { ScribeCoPilot } from './ScribeCoPilot';
 import { getPatientById, getVitals, getClinicalNotes, addClinicalNote, signClinicalNote } from '../lib/dataStore';
 import { ClinicalNote } from '../types';
+import { generateNotePDF } from '../lib/pdfGenerator';
 
 const MOCK_PATIENTS: Record<string, Patient> = {
   '1': { 
@@ -333,15 +334,20 @@ export function PatientChartView() {
                           {/* Compliant Status badges */}
                           <div className="flex items-center gap-2">
                             {isDraft ? (
-                              <span className="flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-100 px-2 py-1 rounded-md uppercase tracking-wider">
+                              <span className="flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-100 px-2 py-1 rounded-md uppercase tracking-wider select-none">
                                 <Unlock size={10} />
                                 Unsigned Draft
                               </span>
                             ) : (
-                              <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100 px-2 py-1 rounded-md uppercase tracking-wider">
-                                <Lock size={10} className="text-emerald-600" />
-                                Co-Signed & Compliant
-                              </span>
+                              <div className="flex flex-col sm:flex-row items-end sm:items-center gap-1.5">
+                                <span className="flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-extrabold border border-emerald-100 px-2.5 py-1 rounded-md uppercase tracking-wider shadow-2xs select-none">
+                                  <Lock size={10} className="text-emerald-500 animate-pulse" />
+                                  Signed & Immutable
+                                </span>
+                                <span className="font-mono text-[9px] text-slate-500 bg-slate-100 border border-slate-200 px-2 py-1 rounded-md max-w-xs truncate">
+                                  Signed: {new Date(note.signedAt || note.date).toLocaleDateString()} • Hash: {note.signatureHash?.substring(0, 8)}...
+                                </span>
+                              </div>
                             )}
                           </div>
                         </header>
@@ -438,9 +444,9 @@ export function PatientChartView() {
 
           {/* Clinician Signature / PDF Export Preview overlay modal */}
           {printableNote && (
-            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 no-print">
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
               <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
-                <header className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                <header className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between no-print">
                   <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm uppercase tracking-wide">
                     <Printer size={16} className="text-blue-600" />
                     EMR Chart Document Print Preview
@@ -561,10 +567,22 @@ export function PatientChartView() {
                       onClick={() => {
                         window.print();
                       }}
-                      className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                      className="flex items-center gap-1.5 text-slate-700 hover:text-slate-900 border border-slate-200 bg-white px-4 py-2 rounded-lg text-sm font-semibold transition-all active:scale-[0.98] cursor-pointer"
                     >
                       <Printer size={14} />
-                      Print / Export to PDF
+                      Standard Print
+                    </button>
+                    <button 
+                      onClick={() => {
+                        if (patient && printableNote) {
+                          generateNotePDF(patient, printableNote);
+                        }
+                      }}
+                      className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                      title="Download clean programmatic clinical record PDF"
+                    >
+                      <FileText size={14} />
+                      Download Final PDF
                     </button>
                   </div>
                 </footer>
