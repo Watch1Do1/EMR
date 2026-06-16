@@ -6,6 +6,28 @@
       display: none !important;
     }
     
+    /* When printing, hide all major UI and only show the clinical print area if present */
+    body :not(#clinical-print-area):not(#clinical-print-area *) {
+      display: none !important;
+    }
+    
+    #clinical-print-area, #clinical-print-area * {
+      display: block !important;
+      visibility: visible !important;
+    }
+
+    #clinical-print-area {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100% !important;
+      height: auto !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      border: none !important;
+      box-shadow: none !important;
+    }
+    
     body {
       background-color: white !important;
       font-size: 10pt;

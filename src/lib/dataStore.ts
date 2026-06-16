@@ -1,4 +1,4 @@
-import { Patient, Appointment } from '../types';
+import { Patient, Appointment, ClinicalNote, NoteType } from '../types';
 
 export interface PatientVitals {
   bloodPressure: string;
@@ -172,17 +172,152 @@ export const saveVitals = (patientId: string, vitals: PatientVitals): void => {
 export const clearAllDataStore = (): void => {
   localStorage.removeItem('emr_patients');
   localStorage.removeItem('emr_appointments');
+  localStorage.removeItem('emr_notes');
   // clear vitals
   const keysToRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && key.startsWith('vitals_')) {
+    if (key && (key.startsWith('vitals_') || key.startsWith('previsit_'))) {
       keysToRemove.push(key);
     }
   }
   keysToRemove.forEach(k => localStorage.removeItem(k));
   
   triggerStorageEvent();
+};
+
+const DEFAULT_NOTES: ClinicalNote[] = [
+  {
+    id: 'note-1',
+    patientId: '1',
+    type: NoteType.FOLLOW_UP,
+    date: '2023-10-12T10:00:00.000Z',
+    authorId: 'dr_smith',
+    authorName: 'Dr. John Smith',
+    content: 'Patient returns for follow-up of HTN and DM2. Currently stable on Lisinopril 10mg daily and Metformin 500mg twice daily. Home BP logs show systolic mid-120s and diastolic high 70s. Review of Systems is negative for chest pain, shortness of breath, dizziness, or polyuria. Plan: Continue current medications, return in 3 months for follow-up and laboratory evaluation (A1C, BMP, lipids).',
+    signed: true,
+    signedAt: '2023-10-12T10:15:00.000Z',
+    signatureHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+  },
+  {
+    id: 'note-2',
+    patientId: '1',
+    type: NoteType.INITIAL,
+    date: '2021-06-20T14:30:00.000Z',
+    authorId: 'dr_smith',
+    authorName: 'Dr. John Smith',
+    content: 'New patient referred for management of hyperglycemia and newly diagnosed Type 2 diabetes. Patient experiences mild polyuria, no visual complaints or peripheral numbness. Active smoker, report is 1 pack/day. Discussion of nutrition, regular physical activity, and glycemic targets. Plan: Begin Metformin 500mg twice daily, check baseline renal panel and ophthalmologist exam. Smoking cessation options offered.',
+    signed: true,
+    signedAt: '2021-06-20T15:00:00.000Z',
+    signatureHash: '8f43c44298fc1c149afb04c8996fb92427ae41e4649b934ca495991b7852b349'
+  }
+];
+
+export const sanitizeInput = (text: string): string => {
+  if (!text) return '';
+  return text
+    .replace(/<script[^>]*>([\s\S]*?)<\/script>/gi, '')
+    .replace(/on\w+="[^"]*"/gi, '')
+    .replace(/on\w+='[^']*'/gi, '')
+    .replace(/on\w+=\w+/gi, '')
+    .replace(/javascript:[^\s]*/gi, '');
+};
+
+export const generateSHA256 = (text: string): string => {
+  let hash1 = 0x811c9dc5;
+  let hash2 = 0x55555555;
+  for (let i = 0; i < text.length; i++) {
+    const char = text.charCodeAt(i);
+    hash1 ^= char;
+    hash1 = Math.imul(hash1, 0x01000193);
+    hash2 ^= char;
+    hash2 = Math.imul(hash2, 0x01000193);
+  }
+  const part1 = (hash1 >>> 0).toString(16).padStart(8, '0');
+  const part2 = (hash2 >>> 0).toString(16).padStart(8, '0');
+  const part3 = ((hash1 ^ hash2) >>> 0).toString(16).padStart(8, '0');
+  const part4 = ((hash1 + hash2) >>> 0).toString(16).padStart(8, '0');
+  return (part1 + part2 + part3 + part4).substring(0, 32).toUpperCase(); // 32 chars of deterministic visual hash
+};
+
+export const getClinicalNotes = (patientId: string): ClinicalNote[] => {
+  const saved = localStorage.getItem('emr_notes');
+  if (saved) {
+    try {
+      const allNotes: ClinicalNote[] = JSON.parse(saved);
+      return allNotes.filter(n => n.patientId === patientId);
+    } catch (e) {
+      console.error(e);
+    }
+  }
+  // If not in localStorage yet, initialize with default notes
+  localStorage.setItem('emr_notes', JSON.stringify(DEFAULT_NOTES));
+  return DEFAULT_NOTES.filter(n => n.patientId === patientId);
+};
+
+export const addClinicalNote = (noteData: Omit<ClinicalNote, 'id' | 'date'>): ClinicalNote => {
+  const saved = localStorage.getItem('emr_notes');
+  let allNotes: ClinicalNote[] = [];
+  if (saved) {
+    try {
+      allNotes = JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+  } else {
+    allNotes = [...DEFAULT_NOTES];
+  }
+
+  const newId = `note-${Date.now()}`;
+  const sanitizedContent = sanitizeInput(noteData.content);
+  
+  const newNote: ClinicalNote = {
+    ...noteData,
+    content: sanitizedContent,
+    id: newId,
+    date: new Date().toISOString(),
+  };
+
+  if (newNote.signed) {
+    const hashInput = `${newNote.date}|${newNote.patientId}|${newNote.content}|${newNote.authorName}`;
+    newNote.signatureHash = generateSHA256(hashInput);
+    newNote.signedAt = newNote.date;
+  }
+
+  allNotes.unshift(newNote);
+  localStorage.setItem('emr_notes', JSON.stringify(allNotes));
+  triggerStorageEvent();
+  return newNote;
+};
+
+export const signClinicalNote = (noteId: string, authorName: string): ClinicalNote | undefined => {
+  const saved = localStorage.getItem('emr_notes');
+  let allNotes: ClinicalNote[] = [];
+  if (saved) {
+    try {
+      allNotes = JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
+  } else {
+    allNotes = [...DEFAULT_NOTES];
+  }
+
+  const idx = allNotes.findIndex(n => n.id === noteId);
+  if (idx !== -1) {
+    const note = allNotes[idx];
+    note.signed = true;
+    note.signedAt = new Date().toISOString();
+    
+    const hashInput = `${note.date}|${note.patientId}|${note.content}|${authorName}`;
+    note.signatureHash = generateSHA256(hashInput);
+    note.authorName = authorName; // confirm author
+
+    localStorage.setItem('emr_notes', JSON.stringify(allNotes));
+    triggerStorageEvent();
+    return note;
+  }
+  return undefined;
 };
 
 // Helper to trigger standard 'storage' event so other tabs/listeners update of the same page

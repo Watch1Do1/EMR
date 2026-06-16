@@ -80,6 +80,7 @@ export interface ClinicalNote {
   signedAt?: string;
   amended?: boolean;
   originalNoteId?: string;
+  signatureHash?: string;
 }
 
 export enum OrderType {

@@ -16,6 +16,8 @@ export function PatientListView() {
     return () => window.removeEventListener('storage', handleUpdate);
   }, []);
   const [searchTerm, setSearchTerm] = useState('');
+  const [genderFilter, setGenderFilter] = useState<'all' | 'female' | 'male'>('all');
+  const [ageFilter, setAgeFilter] = useState<'all' | 'under35' | 'over35'>('all');
   const [resetState, setResetState] = useState<'idle' | 'resetting'>('idle');
   const navigate = useNavigate();
 
@@ -52,10 +54,21 @@ export function PatientListView() {
     }, 850);
   };
 
-  const filteredPatients = patients.filter(p => 
-    `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.mrn.includes(searchTerm)
-  );
+  const filteredPatients = patients.filter(p => {
+    const matchesSearch = `${p.firstName} ${p.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                          p.mrn.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesGender = genderFilter === 'all' || p.gender === genderFilter;
+    
+    let matchesAge = true;
+    if (p.dob) {
+      const birthYear = new Date(p.dob).getFullYear();
+      const age = new Date().getFullYear() - birthYear;
+      if (ageFilter === 'under35') matchesAge = age < 35;
+      if (ageFilter === 'over35') matchesAge = age >= 35;
+    }
+    
+    return matchesSearch && matchesGender && matchesAge;
+  });
 
   return (
     <div className="p-8 max-w-6xl mx-auto">
@@ -92,15 +105,47 @@ export function PatientListView() {
       </div>
 
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center gap-3">
-          <Search size={18} className="text-slate-400" />
-          <input
-            type="text"
-            placeholder="Search by name or MRN..."
-            className="bg-transparent border-none focus:ring-0 text-sm flex-1"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="p-4 border-b border-slate-200 bg-slate-50 flex flex-col md:flex-row md:items-center gap-4">
+          <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-lg px-3 py-1.5 flex-1 shadow-2xs">
+            <Search size={16} className="text-slate-400 shrink-0" />
+            <input
+              type="text"
+              placeholder="Search by name or MRN..."
+              className="bg-transparent border-none text-sm w-full focus:outline-none focus:ring-0 p-0"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Gender:</span>
+              <select
+                id="filter_gender"
+                value={genderFilter}
+                onChange={(e) => setGenderFilter(e.target.value as any)}
+                className="bg-white border border-slate-200 rounded-lg py-1 px-2.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+              >
+                <option value="all">All Genders</option>
+                <option value="female">Female</option>
+                <option value="male">Male</option>
+              </select>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Age Group:</span>
+              <select
+                id="filter_age"
+                value={ageFilter}
+                onChange={(e) => setAgeFilter(e.target.value as any)}
+                className="bg-white border border-slate-200 rounded-lg py-1 px-2.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+              >
+                <option value="all">All Ages</option>
+                <option value="under35">Under 35</option>
+                <option value="over35">35 & Older</option>
+              </select>
+            </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">

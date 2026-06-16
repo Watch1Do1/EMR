@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { NoteType } from '../types';
 
 interface NoteEditorProps {
-  onSave: (content: string) => void;
+  onSave: (content: string, signed: boolean) => void;
   onCancel: () => void;
   initialContent?: string;
   type: NoteType;
@@ -84,20 +84,34 @@ export function NoteEditor({ onSave, onCancel, initialContent = '', type }: Note
         <div className="flex items-center gap-4 text-xs font-medium text-slate-500">
           <span className="flex items-center gap-1"><ClipboardList size={14} /> Smart Text Active</span>
           <span className="w-1 h-1 rounded-full bg-slate-300" />
-          <span>Draft autosaved 2m ago</span>
+          <span>Draft compliant with HIPAA</span>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
           <button 
+            id="btn_note_cancel"
+            type="button"
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900"
+            className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-800"
           >
             Cancel
           </button>
+          
           <button 
-            onClick={() => onSave(content)}
-            className="flex items-center gap-2 bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-sm transition-colors"
+            id="btn_note_save_draft"
+            type="button"
+            onClick={() => onSave(content, false)}
+            className="px-4 py-2 text-sm font-bold text-blue-600 hover:text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-colors shadow-xs"
           >
-            <Check size={18} />
+            Save Draft
+          </button>
+          
+          <button 
+            id="btn_note_sign_finalize"
+            type="button"
+            onClick={() => onSave(content, true)}
+            className="flex items-center gap-2 bg-emerald-600 text-white px-5 py-2 rounded-lg text-sm font-bold hover:bg-emerald-700 shadow-xs transition-colors"
+          >
+            <Check size={16} />
             Sign & Finalize
           </button>
         </div>

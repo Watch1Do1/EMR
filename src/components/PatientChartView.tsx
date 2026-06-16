@@ -11,7 +11,11 @@ import {
   Printer, 
   ShieldAlert, 
   Sparkles,
-  User 
+  User,
+  Check,
+  Lock,
+  Unlock,
+  Calendar
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
@@ -19,7 +23,8 @@ import { cn, formatDate } from '../lib/utils';
 import { NoteType, Patient, ClinicalOrder, OrderType, OrderStatus, Medication } from '../types';
 import { NoteEditor } from './NoteEditor';
 import { ScribeCoPilot } from './ScribeCoPilot';
-import { getPatientById, getVitals } from '../lib/dataStore';
+import { getPatientById, getVitals, getClinicalNotes, addClinicalNote, signClinicalNote } from '../lib/dataStore';
+import { ClinicalNote } from '../types';
 
 const MOCK_PATIENTS: Record<string, Patient> = {
   '1': { 
@@ -82,6 +87,46 @@ export function PatientChartView() {
   const [isEditingNote, setIsEditingNote] = useState(false);
   const [noteDraftContent, setNoteDraftContent] = useState('');
   const patient = getPatientById(id || '') || MOCK_PATIENTS[id || ''];
+
+  const [clinicalNotes, setClinicalNotes] = useState<ClinicalNote[]>(() => {
+    return patient ? getClinicalNotes(patient.id) : [];
+  });
+
+  useEffect(() => {
+    if (patient) {
+      setClinicalNotes(getClinicalNotes(patient.id));
+    }
+  }, [patient]);
+
+  useEffect(() => {
+    const handleUpdate = () => {
+      if (patient) {
+        setClinicalNotes(getClinicalNotes(patient.id));
+      }
+    };
+    window.addEventListener('storage', handleUpdate);
+    return () => window.removeEventListener('storage', handleUpdate);
+  }, [patient]);
+
+  const [printableNote, setPrintableNote] = useState<ClinicalNote | null>(null);
+
+  const handleEditNoteDraft = (noteId: string, oldContent: string) => {
+    setNoteDraftContent(oldContent);
+    const saved = localStorage.getItem('emr_notes');
+    if (saved) {
+      try {
+        const allNotes: ClinicalNote[] = JSON.parse(saved);
+        const filtered = allNotes.filter(n => n.id !== noteId);
+        localStorage.setItem('emr_notes', JSON.stringify(filtered));
+        if (patient) {
+          setClinicalNotes(filtered.filter(n => n.patientId === patient.id));
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    setIsEditingNote(true);
+  };
 
   const [activeMeds, setActiveMeds] = useState<Medication[]>(() => {
     if (!patient) return [];
@@ -228,37 +273,160 @@ export function PatientChartView() {
             />
           )}
           {activeTab === 'notes' && !isEditingNote && (
-            <div className="space-y-4">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="text-xl font-bold text-slate-800">Clinical Notes</h3>
+            <div className="space-y-6">
+              <div className="flex justify-between items-center mb-6 no-print">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-800">Clinical Notes</h3>
+                  <p className="text-xs text-slate-500 mt-1">Legally-compliant, cryptographically-stamped electronic health documentation.</p>
+                </div>
                 <button 
+                  id="btn_new_note"
                   onClick={() => setIsEditingNote(true)}
-                  className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700 bg-white px-4 py-2 rounded-lg border border-blue-100 shadow-sm"
+                  className="flex items-center gap-2 text-sm font-bold text-blue-600 hover:text-blue-700 bg-white px-4 py-2 rounded-lg border border-blue-100 shadow-xs hover:bg-slate-50 transition-colors"
                 >
                   <Plus size={16} />
                   New Note
                 </button>
               </div>
-              <ActivityItem 
-                type="note" 
-                title="Office Visit - Follow-up" 
-                subtitle="Oct 12, 2023 • Dr. John Smith"
-                content="Patient returns for follow-up of HTN and DM2. Currently stable on Lisinopril..."
-              />
-              <ActivityItem 
-                type="note" 
-                title="Initial Consultation" 
-                subtitle="Jun 20, 2021 • Dr. John Smith"
-                content="New patient referred for management of hyperglycemia..."
-              />
+
+              {clinicalNotes.length === 0 ? (
+                <div className="border-2 border-dashed border-slate-200 rounded-xl p-8 text-center text-slate-500 max-w-lg mx-auto">
+                  <FileText className="mx-auto mb-3 text-slate-350" size={32} />
+                  <p className="text-sm font-semibold">No clinical notes recorded yet.</p>
+                  <p className="text-xs text-slate-400 mt-1 mb-4">You can write draft encounters or complete immediate co-signed notes for this patient.</p>
+                  <button
+                    onClick={() => setIsEditingNote(true)}
+                    className="text-xs bg-blue-600 text-white font-bold py-1.5 px-3.5 rounded-lg hover:bg-blue-700 shadow-xs"
+                  >
+                    Draft First Note
+                  </button>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {clinicalNotes.map((note) => {
+                    const isDraft = !note.signed;
+                    return (
+                      <div 
+                        key={note.id} 
+                        className={cn(
+                          "bg-white border rounded-xl overflow-hidden shadow-xs transition-all",
+                          isDraft ? "border-amber-250 bg-amber-50/10" : "border-slate-200"
+                        )}
+                      >
+                        {/* Note Header */}
+                        <header className="px-6 py-4 bg-slate-50/80 border-b border-slate-150 flex flex-wrap items-center justify-between gap-4">
+                          <div className="flex items-center gap-3">
+                            <div className={cn(
+                              "w-8 h-8 rounded-full flex items-center justify-center shrink-0 shadow-2xs border",
+                              isDraft ? "bg-amber-50 text-amber-600 border-amber-100" : "bg-slate-100 text-slate-600 border-slate-200"
+                            )}>
+                              <FileText size={14} />
+                            </div>
+                            <div>
+                              <h4 className="text-sm font-bold text-slate-900">{note.type} Note</h4>
+                              <p className="text-[11px] text-slate-500 font-medium">
+                                Written {new Date(note.date).toLocaleDateString('en-US', { hour: 'numeric', minute: '2-digit', year: 'numeric', month: 'short', day: 'numeric' })} • Author: {note.authorName}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          {/* Compliant Status badges */}
+                          <div className="flex items-center gap-2">
+                            {isDraft ? (
+                              <span className="flex items-center gap-1 bg-amber-50 text-amber-700 text-[10px] font-bold border border-amber-100 px-2 py-1 rounded-md uppercase tracking-wider">
+                                <Unlock size={10} />
+                                Unsigned Draft
+                              </span>
+                            ) : (
+                              <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold border border-emerald-100 px-2 py-1 rounded-md uppercase tracking-wider">
+                                <Lock size={10} className="text-emerald-600" />
+                                Co-Signed & Compliant
+                              </span>
+                            )}
+                          </div>
+                        </header>
+
+                        {/* Note Body content */}
+                        <div className="p-6 bg-white border-b border-slate-100 select-all">
+                          <p className="whitespace-pre-wrap text-sm text-slate-700 leading-relaxed font-serif pl-1">
+                            {note.content}
+                          </p>
+                        </div>
+
+                        {/* Note Footer Actions and Security Stamper */}
+                        <footer className="px-6 py-3 bg-slate-50/50 flex flex-wrap items-center justify-between gap-4 text-xs font-semibold no-print">
+                          <div className="flex-1 min-w-[280px]">
+                            {!isDraft ? (
+                              <div className="flex items-start gap-1.5 text-[10px] font-mono text-slate-450 uppercase leading-normal">
+                                <Check size={12} className="text-emerald-600 shrink-0 mt-0.5" />
+                                <div className="truncate">
+                                  <span>ID CARD SEAL HASH: {note.signatureHash}</span>
+                                  <span className="block mt-0.5 normal-case font-sans font-medium text-[10px] text-slate-400">Signed on {new Date(note.signedAt || note.date).toLocaleString()}</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-amber-600 font-medium flex items-center gap-1.2 uppercase tracking-wide">
+                                <ShieldAlert size={12} />
+                                Warning: Draft notes can be amended. Sign note to lock and stamp.
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {isDraft && (
+                              <>
+                                <button
+                                  id={`btn_edit_draft_${note.id}`}
+                                  onClick={() => handleEditNoteDraft(note.id, note.content)}
+                                  className="px-3 py-1.5 text-xs text-blue-600 hover:text-blue-700 bg-white border border-blue-100 rounded-lg hover:bg-blue-50 transition-colors shadow-2xs cursor-pointer"
+                                >
+                                  Edit Draft
+                                </button>
+                                <button
+                                  id={`btn_sign_note_${note.id}`}
+                                  onClick={() => {
+                                    signClinicalNote(note.id, 'Dr. John Smith');
+                                    setClinicalNotes(getClinicalNotes(patient.id));
+                                  }}
+                                  className="flex items-center gap-1 bg-emerald-600 text-white px-3.5 py-1.5 rounded-lg text-xs hover:bg-emerald-700 shadow-2xs transition-all active:scale-[0.98] cursor-pointer font-bold"
+                                >
+                                  <Check size={12} />
+                                  Sign Note
+                                </button>
+                              </>
+                            )}
+                            <button
+                              id={`btn_preview_pdf_${note.id}`}
+                              onClick={() => setPrintableNote(note)}
+                              className="flex items-center gap-1 text-slate-650 hover:text-slate-800 bg-white border border-slate-200 px-3 py-1.5 rounded-lg hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+                            >
+                              <Printer size={12} />
+                              Print / Export PDF
+                            </button>
+                          </div>
+                        </footer>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
+          
           {isEditingNote && (
             <NoteEditor 
               type={NoteType.FOLLOW_UP}
               initialContent={noteDraftContent}
-              onSave={(content) => {
-                console.log('Saved note:', content);
+              onSave={(content, signed) => {
+                addClinicalNote({
+                  patientId: patient.id,
+                  type: NoteType.FOLLOW_UP,
+                  authorId: 'dr_smith',
+                  authorName: 'Dr. John Smith',
+                  content,
+                  signed: signed
+                });
+                setClinicalNotes(getClinicalNotes(patient.id));
                 setNoteDraftContent('');
                 setIsEditingNote(false);
               }}
@@ -266,6 +434,142 @@ export function PatientChartView() {
                 setIsEditingNote(false);
               }}
             />
+          )}
+
+          {/* Clinician Signature / PDF Export Preview overlay modal */}
+          {printableNote && (
+            <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 no-print">
+              <div className="bg-white rounded-xl shadow-2xl max-w-3xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-slate-200">
+                <header className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                  <h3 className="font-bold text-slate-800 flex items-center gap-2 text-sm uppercase tracking-wide">
+                    <Printer size={16} className="text-blue-600" />
+                    EMR Chart Document Print Preview
+                  </h3>
+                  <button 
+                    onClick={() => setPrintableNote(null)}
+                    className="text-slate-400 hover:text-slate-700 transition-colors p-1.5 rounded-lg hover:bg-slate-100 cursor-pointer"
+                  >
+                    Close
+                  </button>
+                </header>
+                
+                {/* The actual Printable letterhead document */}
+                <div className="flex-1 overflow-auto p-8 md:p-12 bg-white text-slate-900 font-sans leading-relaxed">
+                  <div id="clinical-print-area" className="border border-slate-300 p-8 rounded-lg shadow-sm">
+                    {/* Letterhead */}
+                    <div className="border-b-2 border-slate-800 pb-5 mb-5">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h1 className="text-xl font-black text-slate-900 uppercase tracking-tight">Narratives Clinical Health System</h1>
+                          <p className="text-[10px] text-slate-500 font-semibold mt-0.5 uppercase tracking-wide">100 Medical Plaza • Suite 400 • Clinical Records division</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="text-[9px] font-bold bg-slate-100 text-slate-800 px-2.5 py-1 rounded border border-slate-200 leading-none">OFFICIAL RECORDS RECONSTRUCT</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Patient Metadata Info Table */}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-xs bg-slate-50 border border-slate-200 rounded-lg p-3.5 mb-5 md:mb-6">
+                      <div>
+                        <span className="block font-bold text-slate-400 text-[10px] uppercase tracking-wider">Patient Name</span>
+                        <span className="font-bold text-slate-900 text-xs mt-0.5 block">{patient.lastName}, {patient.firstName}</span>
+                      </div>
+                      <div>
+                        <span className="block font-bold text-slate-400 text-[10px] uppercase tracking-wider">Date of Birth</span>
+                        <span className="font-semibold text-slate-700 mt-0.5 block">{formatDate(patient.dob)}</span>
+                      </div>
+                      <div>
+                        <span className="block font-bold text-slate-400 text-[10px] uppercase tracking-wider">MRN ID</span>
+                        <span className="font-mono text-slate-700 mt-0.5 block">{patient.mrn}</span>
+                      </div>
+                      <div>
+                        <span className="block font-bold text-slate-400 text-[10px] uppercase tracking-wider">Gender</span>
+                        <span className="font-semibold text-slate-700 capitalize mt-0.5 block">{patient.gender}</span>
+                      </div>
+                    </div>
+
+                    {/* Note Header */}
+                    <div className="mb-5 flex justify-between items-center bg-slate-50 border border-slate-150 rounded-lg p-3">
+                      <div>
+                        <h2 className="text-sm font-bold text-slate-800">Encounter Record: {printableNote.type} Note</h2>
+                        <p className="text-[10px] text-slate-500 mt-1">Written Date: {new Date(printableNote.date).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                      </div>
+                      <div>
+                        {printableNote.signed ? (
+                          <span className="bg-emerald-50 text-emerald-800 text-[9px] font-extrabold border border-emerald-100 px-2 py-0.5 rounded uppercase tracking-wider">COMPLIANT & SIGNED</span>
+                        ) : (
+                          <span className="bg-amber-50 text-amber-800 text-[9px] font-extrabold border border-amber-100 px-2 py-0.5 rounded uppercase tracking-wider">UNSIGNED DRAFT</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Note Content body */}
+                    <div className="mb-6">
+                      <h3 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-200 pb-1.5 mb-2.5">Documentation Log</h3>
+                      <div className="text-sm text-slate-800 font-serif leading-relaxed whitespace-pre-wrap pl-0.5">
+                        {printableNote.content || <em className="text-slate-400 italic">No note content provided.</em>}
+                      </div>
+                    </div>
+
+                    {/* Signed credentials & cryptographic security checksums */}
+                    <div className="border-t border-slate-200 pt-5 mt-6">
+                      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                        <div>
+                          <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Certified Audit Seals</h4>
+                          {printableNote.signed ? (
+                            <div className="mt-1.5 space-y-0.5">
+                              <p className="text-xs font-bold text-slate-800 flex items-center gap-1">
+                                <Check size={12} className="text-emerald-600 shrink-0" />
+                                Digitally signed by: {printableNote.authorName}, MD
+                              </p>
+                              <p className="text-[10px] text-slate-500 font-medium">Signed Timestamp: {new Date(printableNote.signedAt || printableNote.date).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                            </div>
+                          ) : (
+                            <p className="text-xs italic text-amber-600 font-bold mt-1.5 flex items-center gap-1">
+                              <ShieldAlert size={12} className="shrink-0" />
+                              Review Pending: Document is currently an unsigned draft
+                            </p>
+                          )}
+                        </div>
+                        {printableNote.signed && (
+                          <div className="md:text-right">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Cryptographic Authentication Handoff</span>
+                            <span className="font-mono text-[9px] text-slate-500 bg-slate-50 border border-slate-200 px-2 py-1 rounded block max-w-xs md:max-w-md break-all leading-tight mt-1">
+                              SHA256: {printableNote.signatureHash}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <footer className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between no-print gap-3">
+                  <span className="text-[10px] text-slate-400 flex items-center gap-1 font-bold uppercase tracking-wider">
+                    <Lock size={12} className="text-slate-450" />
+                    Narratives Certificate Pipeline Compliant
+                  </span>
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setPrintableNote(null)}
+                      className="px-4 py-2 text-sm font-semibold text-slate-600 hover:text-slate-900 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors cursor-pointer"
+                    >
+                      Close Preview
+                    </button>
+                    <button 
+                      onClick={() => {
+                        window.print();
+                      }}
+                      className="flex items-center gap-1.5 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 shadow-xs transition-all active:scale-[0.98] cursor-pointer"
+                    >
+                      <Printer size={14} />
+                      Print / Export to PDF
+                    </button>
+                  </div>
+                </footer>
+              </div>
+            </div>
           )}
         </div>
       </div>
