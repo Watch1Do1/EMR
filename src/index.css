@@ -2,17 +2,14 @@
 
 @layer base {
   @media print {
-    .no-print {
-      display: none !important;
+    /* Hide everything on the page by default */
+    body {
+      visibility: hidden;
+      background: white !important;
     }
     
-    /* When printing, hide all major UI and only show the clinical print area if present */
-    body :not(#clinical-print-area):not(#clinical-print-area *) {
-      display: none !important;
-    }
-    
+    /* Show only the clinical print area and all its descendants */
     #clinical-print-area, #clinical-print-area * {
-      display: block !important;
       visibility: visible !important;
     }
 
@@ -28,6 +25,11 @@
       box-shadow: none !important;
     }
     
+    .no-print, .no-print * {
+      display: none !important;
+      visibility: hidden !important;
+    }
+
     body {
       background-color: white !important;
       font-size: 10pt;

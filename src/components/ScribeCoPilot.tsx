@@ -313,9 +313,43 @@ export function ScribeCoPilot({
     ];
   });
 
+  const [isSimulatingAmbient, setIsSimulatingAmbient] = useState(false);
+  const [simulationIndex, setSimulationIndex] = useState(0);
+
+  const AMBIENT_DEMO_LINES = [
+    'Dr. Smith: "We should do some tests on your knee. Have you had any imaging recently?"',
+    'Patient: "No, I had an ultrasound of my ankle last year but nothing on my knee. It feels like there is swelling."',
+    'Dr. Smith: "I see. Let\'s schedule some routine laboratory bloodwork checkup, particularly a Hemoglobin A1c test to monitor sugar level trends."',
+    'Patient: "Alright, and what about the pain? I can\'t sleep because it aches so much at night."',
+    'Dr. Smith: "Good. For joint aching, let\'s prescribe you Meloxicam 15mg oral once daily."',
+    'Patient: "Is there anything else I can do? Like exercises or stretches?"',
+    'Dr. Smith: "To build extension range of motion, I will submit a Referral to Physical Therapy for rehabilitation exercises."',
+    'Patient: "Thank you. Let\'s hope that works. Do you think we need an X-Ray?"',
+    'Dr. Smith: "We should also get a standard X-Ray of the right knee (2 views) to inspect cartilage structures before surgery."',
+    'Patient: "Okay, I\'ll do the bloodwork and physical therapy. Hopefully we\'ll know more soon."',
+  ];
+
   useEffect(() => {
     localStorage.setItem(`consult_transcript_${patient.id}`, JSON.stringify(consultTranscript));
   }, [consultTranscript, patient.id]);
+
+  useEffect(() => {
+    if (!isSimulatingAmbient) return;
+    
+    // Periodically append a line of dialogue that naturally mimics clinic interaction and triggers order extractions
+    const interval = setInterval(() => {
+      if (simulationIndex < AMBIENT_DEMO_LINES.length) {
+        const text = AMBIENT_DEMO_LINES[simulationIndex];
+        handleAddNewTranscriptLine(text);
+        setSimulationIndex(prev => prev + 1);
+      } else {
+        setIsSimulatingAmbient(false);
+        setSimulationIndex(0);
+      }
+    }, 4500); // 4.5 seconds for snappier demo engagement
+    
+    return () => clearInterval(interval);
+  }, [isSimulatingAmbient, simulationIndex]);
 
   // 3b. Detected ambient orders and medications
   const [detectedOrders, setDetectedOrders] = useState<Array<{
@@ -1321,7 +1355,27 @@ export function ScribeCoPilot({
                         <Mic size={11} className="text-indigo-500" />
                         Live Conversation stream
                       </span>
-                      <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase animate-pulse">Listening</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          id="btn_toggle_ambient_simulation"
+                          type="button"
+                          onClick={() => {
+                            setIsSimulatingAmbient(!isSimulatingAmbient);
+                            if (!isSimulatingAmbient && simulationIndex === AMBIENT_DEMO_LINES.length) {
+                              setSimulationIndex(0);
+                            }
+                          }}
+                          className={cn(
+                            "text-[8px] font-extrabold px-2 py-0.5 rounded border transition-all cursor-pointer flex items-center gap-0.5 uppercase select-none leading-none",
+                            isSimulatingAmbient 
+                              ? "bg-amber-50 text-amber-800 border-amber-300 animate-pulse" 
+                              : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100"
+                          )}
+                        >
+                          ⚡ {isSimulatingAmbient ? "Simulating Audio..." : "Auto-Play Simulator"}
+                        </button>
+                        <span className="text-[9px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-100 uppercase animate-pulse">Listening</span>
+                      </div>
                     </div>
 
                     <div className="space-y-1.5 text-xs text-slate-600 leading-normal font-sans pr-1">

@@ -173,11 +173,20 @@ export const clearAllDataStore = (): void => {
   localStorage.removeItem('emr_patients');
   localStorage.removeItem('emr_appointments');
   localStorage.removeItem('emr_notes');
-  // clear vitals
+  localStorage.removeItem('emr_signed_notes');
+  // clear vitals and checklists
   const keysToRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const key = localStorage.key(i);
-    if (key && (key.startsWith('vitals_') || key.startsWith('previsit_'))) {
+    if (key && (
+      key.startsWith('vitals_') || 
+      key.startsWith('previsit_') || 
+      key.startsWith('meds_') || 
+      key.startsWith('orders_') || 
+      key.startsWith('detected_orders_') || 
+      key.startsWith('consult_transcript_') ||
+      key.startsWith('billing_queries_')
+    )) {
       keysToRemove.push(key);
     }
   }
@@ -240,32 +249,67 @@ export const generateSHA256 = (text: string): string => {
   return (part1 + part2 + part3 + part4).substring(0, 32).toUpperCase(); // 32 chars of deterministic visual hash
 };
 
-export const getClinicalNotes = (patientId: string): ClinicalNote[] => {
-  const saved = localStorage.getItem('emr_notes');
+export const getSignedNotes = (): ClinicalNote[] => {
+  const saved = localStorage.getItem('emr_signed_notes');
   if (saved) {
     try {
-      const allNotes: ClinicalNote[] = JSON.parse(saved);
-      return allNotes.filter(n => n.patientId === patientId);
+      return JSON.parse(saved);
     } catch (e) {
       console.error(e);
     }
   }
-  // If not in localStorage yet, initialize with default notes
-  localStorage.setItem('emr_notes', JSON.stringify(DEFAULT_NOTES));
-  return DEFAULT_NOTES.filter(n => n.patientId === patientId);
+  // Initialize with pre-signed default notes
+  const initialSigned = DEFAULT_NOTES.filter(n => n.signed);
+  localStorage.setItem('emr_signed_notes', JSON.stringify(initialSigned));
+  return initialSigned;
 };
 
-export const addClinicalNote = (noteData: Omit<ClinicalNote, 'id' | 'date'>): ClinicalNote => {
+export const appendSignedNote = (note: ClinicalNote): void => {
+  const signedArr = getSignedNotes();
+  const exists = signedArr.some(n => n.id === note.id);
+  if (!exists) {
+    const updated = [...signedArr, note];
+    localStorage.setItem('emr_signed_notes', JSON.stringify(updated));
+    triggerStorageEvent();
+  }
+};
+
+export const getClinicalNotes = (patientId: string): ClinicalNote[] => {
+  let drafts: ClinicalNote[] = [];
   const saved = localStorage.getItem('emr_notes');
-  let allNotes: ClinicalNote[] = [];
   if (saved) {
     try {
-      allNotes = JSON.parse(saved);
+      drafts = JSON.parse(saved);
     } catch (e) {
       console.error(e);
     }
   } else {
-    allNotes = [...DEFAULT_NOTES];
+    // defaults that are not signed initially (default notes-1/2 are signed, so empty drafts list is fine)
+    const initialDrafts = DEFAULT_NOTES.filter(n => !n.signed);
+    localStorage.setItem('emr_notes', JSON.stringify(initialDrafts));
+    drafts = initialDrafts;
+  }
+
+  // Ensure drafts are ONLY unsigned ones
+  const activeDrafts = drafts.filter(n => !n.signed && n.patientId === patientId);
+
+  // Combine with read-only immutable signed notes
+  const signedNotes = getSignedNotes().filter(n => n.patientId === patientId);
+
+  const combined = [...activeDrafts, ...signedNotes];
+  // Sort descending by date
+  return combined.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+};
+
+export const addClinicalNote = (noteData: Omit<ClinicalNote, 'id' | 'date'>): ClinicalNote => {
+  const saved = localStorage.getItem('emr_notes');
+  let drafts: ClinicalNote[] = [];
+  if (saved) {
+    try {
+      drafts = JSON.parse(saved);
+    } catch (e) {
+      console.error(e);
+    }
   }
 
   const newId = `note-${Date.now()}`;
@@ -282,30 +326,32 @@ export const addClinicalNote = (noteData: Omit<ClinicalNote, 'id' | 'date'>): Cl
     const hashInput = `${newNote.date}|${newNote.patientId}|${newNote.content}|${newNote.authorName}`;
     newNote.signatureHash = generateSHA256(hashInput);
     newNote.signedAt = newNote.date;
+    // Save to the immutable append-only bank directly!
+    appendSignedNote(newNote);
+  } else {
+    // Save to drafts
+    drafts.unshift(newNote);
+    localStorage.setItem('emr_notes', JSON.stringify(drafts));
+    triggerStorageEvent();
   }
 
-  allNotes.unshift(newNote);
-  localStorage.setItem('emr_notes', JSON.stringify(allNotes));
-  triggerStorageEvent();
   return newNote;
 };
 
 export const signClinicalNote = (noteId: string, authorName: string): ClinicalNote | undefined => {
   const saved = localStorage.getItem('emr_notes');
-  let allNotes: ClinicalNote[] = [];
+  let drafts: ClinicalNote[] = [];
   if (saved) {
     try {
-      allNotes = JSON.parse(saved);
+      drafts = JSON.parse(saved);
     } catch (e) {
       console.error(e);
     }
-  } else {
-    allNotes = [...DEFAULT_NOTES];
   }
 
-  const idx = allNotes.findIndex(n => n.id === noteId);
+  const idx = drafts.findIndex(n => n.id === noteId);
   if (idx !== -1) {
-    const note = allNotes[idx];
+    const note = drafts[idx];
     note.signed = true;
     note.signedAt = new Date().toISOString();
     
@@ -313,7 +359,12 @@ export const signClinicalNote = (noteId: string, authorName: string): ClinicalNo
     note.signatureHash = generateSHA256(hashInput);
     note.authorName = authorName; // confirm author
 
-    localStorage.setItem('emr_notes', JSON.stringify(allNotes));
+    // Promote to the immutable append-only bank
+    appendSignedNote(note);
+
+    // Remove from the mutable drafts list
+    drafts.splice(idx, 1);
+    localStorage.setItem('emr_notes', JSON.stringify(drafts));
     triggerStorageEvent();
     return note;
   }

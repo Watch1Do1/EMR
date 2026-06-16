@@ -18,6 +18,7 @@ export function PatientListView() {
   const [searchTerm, setSearchTerm] = useState('');
   const [genderFilter, setGenderFilter] = useState<'all' | 'female' | 'male'>('all');
   const [ageFilter, setAgeFilter] = useState<'all' | 'under35' | 'over35'>('all');
+  const [conditionFilter, setConditionFilter] = useState<'all' | 'htn' | 'dm' | 'knee'>('all');
   const [resetState, setResetState] = useState<'idle' | 'resetting'>('idle');
   const navigate = useNavigate();
 
@@ -66,8 +67,21 @@ export function PatientListView() {
       if (ageFilter === 'under35') matchesAge = age < 35;
       if (ageFilter === 'over35') matchesAge = age >= 35;
     }
+
+    let matchesCondition = true;
+    if (p.problems) {
+      if (conditionFilter === 'htn') {
+        matchesCondition = p.problems.some(pr => pr.description.toLowerCase().includes('hypertension'));
+      } else if (conditionFilter === 'dm') {
+        matchesCondition = p.problems.some(pr => pr.description.toLowerCase().includes('diabetes') || pr.description.toLowerCase().includes('glycemia'));
+      } else if (conditionFilter === 'knee') {
+        matchesCondition = p.problems.some(pr => pr.description.toLowerCase().includes('knee'));
+      }
+    } else {
+      if (conditionFilter !== 'all') matchesCondition = false;
+    }
     
-    return matchesSearch && matchesGender && matchesAge;
+    return matchesSearch && matchesGender && matchesAge && matchesCondition;
   });
 
   return (
@@ -143,6 +157,21 @@ export function PatientListView() {
                 <option value="all">All Ages</option>
                 <option value="under35">Under 35</option>
                 <option value="over35">35 & Older</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Clinical Focus:</span>
+              <select
+                id="filter_focus"
+                value={conditionFilter}
+                onChange={(e) => setConditionFilter(e.target.value as any)}
+                className="bg-white border border-slate-200 rounded-lg py-1 px-2.5 text-xs font-semibold text-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+              >
+                <option value="all">All Conditions Focus</option>
+                <option value="htn">Hypertension / Heart</option>
+                <option value="dm">Diabetes / Glycemic</option>
+                <option value="knee">Knee joint / Orthopedics</option>
               </select>
             </div>
           </div>
